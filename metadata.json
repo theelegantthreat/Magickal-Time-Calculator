@@ -1,0 +1,6 @@
+{
+  "name": "AstroChronos",
+  "description": "An offline-capable astronomical calculator tracking Planetary Hours, Tattwic Tides, and Combined cycles with custom notifications, haptic timing, and shift logs export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

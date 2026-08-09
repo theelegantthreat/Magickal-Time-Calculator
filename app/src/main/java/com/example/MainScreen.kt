@@ -1,0 +1,1619 @@
+package com.example
+
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlin.math.roundToInt
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen(viewModel: MainViewModel) {
+    val context = LocalContext.current
+    val config = LocalConfiguration.current
+    val isWideScreen = config.screenWidthDp >= 720 || config.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    // ViewModel Stateflows
+    val viewMode by viewModel.viewMode.collectAsStateWithLifecycle()
+    val darkTheme by viewModel.darkTheme.collectAsStateWithLifecycle()
+    val notificationsEnabled by viewModel.notificationsEnabled.collectAsStateWithLifecycle()
+    val hapticsEnabled by viewModel.hapticsEnabled.collectAsStateWithLifecycle()
+    val latitude by viewModel.latitude.collectAsStateWithLifecycle()
+    val longitude by viewModel.longitude.collectAsStateWithLifecycle()
+    val locationName by viewModel.locationName.collectAsStateWithLifecycle()
+    val currentDateStr by viewModel.currentDateString.collectAsStateWithLifecycle()
+
+    val sunriseOverride by viewModel.sunriseOverride.collectAsStateWithLifecycle()
+    val sunsetOverride by viewModel.sunsetOverride.collectAsStateWithLifecycle()
+    val tomorrowSunriseOverride by viewModel.tomorrowSunriseOverride.collectAsStateWithLifecycle()
+
+    val calcResults by viewModel.calculationResults.collectAsStateWithLifecycle()
+    val currentTimeSec by viewModel.currentTimeSeconds.collectAsStateWithLifecycle()
+    val curPlanetaryHour by viewModel.currentPlanetaryHour.collectAsStateWithLifecycle()
+    val curTattva by viewModel.currentTattva.collectAsStateWithLifecycle()
+    val curCombined by viewModel.currentCombined.collectAsStateWithLifecycle()
+
+    val planetFilters by viewModel.activePlanetFilters.collectAsStateWithLifecycle()
+    val tattvaFilters by viewModel.activeTattvaFilters.collectAsStateWithLifecycle()
+    val tattvaMode by viewModel.tattvaDisplayMode.collectAsStateWithLifecycle()
+
+    val logsList by viewModel.allLogs.collectAsStateWithLifecycle()
+
+    // Screen Interactive states
+    var showSettingsState by remember { mutableStateOf(false) }
+    var noteInputText by remember { mutableStateOf("") }
+    var showLogLevelsState by remember { mutableStateOf(false) }
+
+    // Android 13+ Notification Permission Launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Toast.makeText(context, "Shift notifications enabled!", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Notification permission denied.", Toast.LENGTH_SHORT).show()
+            viewModel.setNotificationsEnabled(false)
+        }
+    }
+
+    // Interactive custom location inputs
+    var inputLat by remember(latitude) { mutableStateOf(latitude.toString()) }
+    var inputLon by remember(longitude) { mutableStateOf(longitude.toString()) }
+    var inputLocName by remember(locationName) { mutableStateOf(locationName) }
+
+    // Android Location Permission Launcher
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val fineGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarseGranted = permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (fineGranted || coarseGranted) {
+            Toast.makeText(context, "Location permission granted! Locating...", Toast.LENGTH_SHORT).show()
+            performRealLocationDetection(
+                context = context,
+                onUpdate = { lat, lon, name ->
+                    inputLat = String.format(Locale.US, "%.5f", lat)
+                    inputLon = String.format(Locale.US, "%.5f", lon)
+                    inputLocName = name
+                    viewModel.updateLocation(lat, lon, name)
+                    Toast.makeText(context, "Location updated successfully: $name", Toast.LENGTH_LONG).show()
+                },
+                onFailure = { error ->
+                    Toast.makeText(context, "Fallback loaded: GPS feature failed ($error)", Toast.LENGTH_SHORT).show()
+                    val mockLocations = listOf(
+                        Triple(51.5074, -0.1278, "London, UK"),
+                        Triple(30.0444, 31.2357, "Cairo, Egypt"),
+                        Triple(27.1751, 78.0421, "Taj Mahal, India"),
+                        Triple(35.6762, 139.6503, "Tokyo, Japan"),
+                        Triple(-33.8688, 151.2093, "Sydney, Australia")
+                    )
+                    val picked = mockLocations.random()
+                    inputLat = picked.first.toString()
+                    inputLon = picked.second.toString()
+                    inputLocName = picked.third
+                    viewModel.updateLocation(picked.first, picked.second, picked.third)
+                }
+            )
+        } else {
+            Toast.makeText(context, "Location permission was denied.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Generates star twinkles purely inside Compose Canvas background
+    val starsPositions = remember {
+        List(110) {
+            Offset(
+                x = (Math.random() * 2000).toFloat(),
+                y = (Math.random() * 2000).toFloat()
+            )
+        }
+    }
+
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("app_scaffold"),
+        containerColor = Color.Transparent,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFD0BCFF)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = "AstroChronos Star Badge",
+                                tint = Color(0xFF381E72),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Text(
+                            text = "AstroChronos",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            ),
+                            color = if (darkTheme) Color(0xFFE6E1E5) else Color(0xFF1C1B1F)
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { showSettingsState = !showSettingsState },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("settings_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings Panel Toggle",
+                            tint = if (darkTheme) Color(0xFFE6E1E5) else Color(0xFF381E72)
+                        )
+                    }
+                    IconButton(
+                        onClick = { showLogLevelsState = !showLogLevelsState },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("logs_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.List,
+                            contentDescription = "Shift Experience Logs List",
+                            tint = if (darkTheme) Color(0xFFE6E1E5) else Color(0xFF381E72)
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = if (darkTheme) Color(0xFF25232A) else Color(0xFFEDE8DB)
+                ),
+                modifier = Modifier.clip(RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp))
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(if (darkTheme) SpaceBackground else Color(0xFFF9F6EE))
+                .drawBehind {
+                    if (darkTheme) {
+                        for (star in starsPositions) {
+                            drawCircle(
+                                color = Color.White.copy(alpha = 0.35f),
+                                radius = 2.dp.toPx(),
+                                center = star
+                            )
+                        }
+                    }
+                }
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Info Location Stats Top Banner Indicator
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (darkTheme) Color(0xFF131326) else Color(0xFFEBE5D8)
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "📍 $locationName",
+                                color = CelestialGold,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                modifier = Modifier.testTag("location_indicator")
+                            )
+                            Text(
+                                text = "🕒 ${formatSecToString(currentTimeSec)}",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = if (darkTheme) Color.LightGray else Color.DarkGray
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Date: $currentDateStr",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (darkTheme) Color.Gray else Color.DarkGray
+                            )
+                            Text(
+                                text = "Lat/Lon: ${String.format(Locale.US, "%.3f, %.3f", latitude, longitude)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (darkTheme) Color.Gray else Color.DarkGray
+                            )
+                        }
+                    }
+                }
+
+                // Settings & Custom Inputs Overlay Modal Block (Expanded state)
+                AnimatedVisibility(
+                    visible = showSettingsState,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp)
+                            .testTag("settings_overlay"),
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (darkTheme) StarrySlateCard else Color(0xFFEDE8DB),
+                        border = BorderStroke(1.dp, if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Cosmic Settings & Modifiers",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = CelestialGold
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Settings row: Mode switches
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                maxItemsInEachRow = 3,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = darkTheme,
+                                        onCheckedChange = { viewModel.setDarkTheme(it) },
+                                        modifier = Modifier.minimumInteractiveComponentSize().testTag("theme_checkbox")
+                                    )
+                                    Text("Dark Universe Mode", style = MaterialTheme.typography.bodyMedium)
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = notificationsEnabled,
+                                        onCheckedChange = {
+                                            viewModel.setNotificationsEnabled(it)
+                                            if (it && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                            }
+                                        },
+                                        modifier = Modifier.minimumInteractiveComponentSize().testTag("notifications_checkbox")
+                                    )
+                                    Text("Shift Reminders", style = MaterialTheme.typography.bodyMedium)
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = hapticsEnabled,
+                                        onCheckedChange = { viewModel.setHapticsEnabled(it) },
+                                        modifier = Modifier.minimumInteractiveComponentSize().testTag("haptics_checkbox")
+                                    )
+                                    Text("Haptic Feedback Trigger", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+
+                            Divider(modifier = Modifier.padding(vertical = 12.dp), color = if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+
+                            // Location detection edits
+                            Text(
+                                text = "Personalized Geocentric Coordinates",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = CelestialGold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = inputLocName,
+                                    onValueChange = { inputLocName = it },
+                                    label = { Text("Location Name") },
+                                    modifier = Modifier
+                                        .weight(1.5f)
+                                        .testTag("location_name_input"),
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    value = inputLat,
+                                    onValueChange = { inputLat = it },
+                                    label = { Text("Latitude") },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("latitude_input"),
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    value = inputLon,
+                                    onValueChange = { inputLon = it },
+                                    label = { Text("Longitude") },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("longitude_input"),
+                                    singleLine = true
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
+                                            context,
+                                            android.Manifest.permission.ACCESS_FINE_LOCATION
+                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                                        val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
+                                            context,
+                                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                                        if (hasFine || hasCoarse) {
+                                            Toast.makeText(context, "Acquiring coordinates...", Toast.LENGTH_SHORT).show()
+                                            performRealLocationDetection(
+                                                context = context,
+                                                onUpdate = { lat, lon, name ->
+                                                    inputLat = String.format(Locale.US, "%.5f", lat)
+                                                    inputLon = String.format(Locale.US, "%.5f", lon)
+                                                    inputLocName = name
+                                                    viewModel.updateLocation(lat, lon, name)
+                                                    Toast.makeText(context, "Auto-detected: $name", Toast.LENGTH_LONG).show()
+                                                },
+                                                onFailure = { error ->
+                                                    Toast.makeText(context, "Real GPS failed: $error. Using celestial fallback.", Toast.LENGTH_SHORT).show()
+                                                    val mockLocations = listOf(
+                                                        Triple(51.5074, -0.1278, "London, UK"),
+                                                        Triple(30.0444, 31.2357, "Cairo, Egypt"),
+                                                        Triple(27.1751, 78.0421, "Taj Mahal, India"),
+                                                        Triple(35.6762, 139.6503, "Tokyo, Japan"),
+                                                        Triple(-33.8688, 151.2093, "Sydney, Australia")
+                                                    )
+                                                    val picked = mockLocations.random()
+                                                    inputLat = picked.first.toString()
+                                                    inputLon = picked.second.toString()
+                                                    inputLocName = picked.third
+                                                    viewModel.updateLocation(picked.first, picked.second, picked.third)
+                                                }
+                                            )
+                                        } else {
+                                            locationPermissionLauncher.launch(
+                                                arrayOf(
+                                                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                                )
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1.3f).testTag("live_autodetect_btn"),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                ) {
+                                    Text("📍 Auto-Detect")
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val parsedLat = inputLat.toDoubleOrNull() ?: 40.7128
+                                        val parsedLon = inputLon.toDoubleOrNull() ?: -74.0060
+                                        viewModel.updateLocation(parsedLat, parsedLon, inputLocName)
+                                        Toast.makeText(context, "Location metrics updated dynamically!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = CelestialGold)
+                                ) {
+                                    Text("Apply Setup")
+                                }
+                            }
+
+                            Divider(modifier = Modifier.padding(vertical = 12.dp), color = if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+
+                            // Manual override Solar clocks
+                            Text(
+                                text = "Bespoke Solar Event Manual Overrides",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = CelestialGold
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = sunriseOverride,
+                                    onValueChange = { viewModel.manualOverrideSunrise(it, 0) },
+                                    label = { Text("Sunrise") },
+                                    modifier = Modifier.weight(1f),
+                                    placeholder = { Text("HH:MM:SS") }
+                                )
+                                OutlinedTextField(
+                                    value = sunsetOverride,
+                                    onValueChange = { viewModel.manualOverrideSunrise(it, 1) },
+                                    label = { Text("Sunset") },
+                                    modifier = Modifier.weight(1f),
+                                    placeholder = { Text("HH:MM:SS") }
+                                )
+                                OutlinedTextField(
+                                    value = tomorrowSunriseOverride,
+                                    onValueChange = { viewModel.manualOverrideSunrise(it, 2) },
+                                    label = { Text("Tmrw Sunrise") },
+                                    modifier = Modifier.weight(1.1f),
+                                    placeholder = { Text("HH:MM:SS") }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Log Experience Sidebar Overlay
+                AnimatedVisibility(
+                    visible = showLogLevelsState,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp)
+                            .testTag("logs_overlay"),
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (darkTheme) StarrySlateCard else Color(0xFFECE7D9),
+                        border = BorderStroke(1.dp, if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .heightIn(max = 280.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🌌 Transition shift log history",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CelestialGold
+                                )
+                                Row {
+                                    IconButton(
+                                        onClick = { viewModel.exportCsv(context) },
+                                        modifier = Modifier.minimumInteractiveComponentSize().testTag("export_csv_btn")
+                                    ) {
+                                        Icon(Icons.Default.Share, "Share CSV file outline", tint = CelestialGold)
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.clearLogs() },
+                                        modifier = Modifier.minimumInteractiveComponentSize()
+                                    ) {
+                                        Icon(Icons.Default.Delete, "Clear all history logs", tint = Color.Red)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            if (logsList.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "No shifts logged yet.\nTweak notes above to record transitions offline.",
+                                        color = Color.Gray,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                ) {
+                                    items(logsList) { log ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp)
+                                                .background(
+                                                    if (darkTheme) SpaceBackground else Color(0xFFF9F6EE),
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .border(
+                                                    1.dp,
+                                                    if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB),
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = "🌌 Hour: ${log.planetName}  ·  Tattva: ${log.tattvaName}",
+                                                        fontWeight = FontWeight.Bold,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = CelestialGold
+                                                    )
+                                                }
+                                                Text(
+                                                    text = log.notes,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontStyle = FontStyle.Italic,
+                                                    color = if (darkTheme) Color.LightGray else Color.DarkGray
+                                                )
+                                                Text(
+                                                    text = "@ ${log.locationName}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color.Gray
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.deleteLog(log.id) },
+                                                modifier = Modifier.minimumInteractiveComponentSize()
+                                            ) {
+                                                Icon(Icons.Default.Delete, "Remove item log", tint = Color.Gray, modifier = Modifier.size(20.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Current feature layouts (Vibrant Palette)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // 1. Dynamic main featured status card based on selected view mode
+                    when (viewMode) {
+                        ViewMode.PLANETARY_HOURS -> {
+                            curPlanetaryHour?.let { ph ->
+                                val rgbColor = remember(ph.colorHex) { Color(android.graphics.Color.parseColor(ph.colorHex)) }
+                                val remainingTotalSec = (ph.endSecondOfDay - currentTimeSec).roundToInt().coerceAtLeast(0)
+                                val remMin = remainingTotalSec / 60
+                                val remSec = remainingTotalSec % 60
+                                val timeRemainingStr = String.format(Locale.US, "%02d:%02d", remMin, remSec)
+
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("current_planet_card"),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (darkTheme) Color(0xFF31111D) else Color(0xFFFDE7EC)
+                                    ),
+                                    shape = RoundedCornerShape(24.dp),
+                                    border = BorderStroke(1.dp, if (darkTheme) Color(0xFF4E102E) else Color(0xFFF0B3C4))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(20.dp)
+                                    ) {
+                                        // Background celestial icon decoration
+                                        Icon(
+                                            imageVector = Icons.Default.Star,
+                                            contentDescription = null,
+                                            tint = (if (darkTheme) Color(0xFFFFB1C8) else Color(0xFF31111D)).copy(alpha = 0.08f),
+                                            modifier = Modifier
+                                                .size(110.dp)
+                                                .align(Alignment.TopEnd)
+                                        )
+
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            Text(
+                                                text = "CURRENT PLANETARY HOUR",
+                                                style = MaterialTheme.typography.labelMedium.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    letterSpacing = 2.sp
+                                                ),
+                                                color = if (darkTheme) Color(0xFFFFD8E4) else Color(0xFF8C3E52)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "${ph.planetSymbol} ${ph.planetName}",
+                                                style = MaterialTheme.typography.headlineLarge.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    letterSpacing = (-0.5).sp
+                                                ),
+                                                color = if (darkTheme) Color(0xFFFFB1C8) else Color(0xFF801A34)
+                                            )
+                                            Text(
+                                                text = when (ph.planetName.lowercase(Locale.US)) {
+                                                    "mars" -> "Phase of Energy, Focus & Vitality"
+                                                    "sun" -> "Phase of Influence, Power & Cosmic Light"
+                                                    "moon" -> "Phase of Reflection, Intuition & Transition"
+                                                    "mercury" -> "Phase of Logic, Wisdom & Communication"
+                                                    "jupiter" -> "Phase of Expansion, Abundance & Learning"
+                                                    "venus" -> "Phase of Harmony, Beauty & Artistic Resonance"
+                                                    "saturn" -> "Phase of Structure, Discipline & Grounding"
+                                                    else -> "Phase of celestial alignment and cosmic cycle"
+                                                },
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                                                color = (if (darkTheme) Color(0xFFFFD8E4) else Color(0xFF8C3E52)).copy(alpha = 0.8f)
+                                            )
+                                            Spacer(modifier = Modifier.height(14.dp))
+
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = timeRemainingStr,
+                                                    style = MaterialTheme.typography.titleLarge.copy(
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Bold
+                                                    ),
+                                                    color = if (darkTheme) Color.White else Color(0xFF31111D)
+                                                )
+                                                Text(
+                                                    text = "REMAINING",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = (if (darkTheme) Color(0xFFFFD8E4) else Color(0xFF8C3E52)).copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } ?: run {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("current_planet_card"),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (darkTheme) Color(0xFF31111D) else Color(0xFFFDE7EC)
+                                    ),
+                                    shape = RoundedCornerShape(24.dp)
+                                ) {
+                                    Box(modifier = Modifier.padding(20.dp), contentAlignment = Alignment.Center) {
+                                        Text("No Planetary Hour Loaded", color = Color.Gray)
+                                    }
+                                }
+                            }
+                        }
+                        ViewMode.TATTWIC_TIDES -> {
+                            curTattva?.let { tv ->
+                                val rgbColor = remember(tv.colorHex) { Color(android.graphics.Color.parseColor(tv.colorHex)) }
+                                val remainingTotalSec = (tv.endSecondOfDay - currentTimeSec).roundToInt().coerceAtLeast(0)
+                                val remMin = remainingTotalSec / 60
+                                val remSec = remainingTotalSec % 60
+                                val timeRemainingStr = String.format(Locale.US, "%02d:%02d", remMin, remSec)
+
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("current_tattva_featured_card"),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (darkTheme) Color(0xFF1B262C) else Color(0xFFE8F1F5)
+                                    ),
+                                    shape = RoundedCornerShape(24.dp),
+                                    border = BorderStroke(1.dp, if (darkTheme) Color(0xFF0F4C5C) else Color(0xFF90E0EF))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(20.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Star,
+                                            contentDescription = null,
+                                            tint = (if (darkTheme) Color(0xFF3282B8) else Color(0xFF1B262C)).copy(alpha = 0.08f),
+                                            modifier = Modifier
+                                                .size(110.dp)
+                                                .align(Alignment.TopEnd)
+                                        )
+
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            Text(
+                                                text = "CURRENT TATTWIC TIDE",
+                                                style = MaterialTheme.typography.labelMedium.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    letterSpacing = 2.sp
+                                                ),
+                                                color = if (darkTheme) Color(0xFFBBE1FA) else Color(0xFF0F4C5C)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "${tv.symbol} ${tv.name}",
+                                                style = MaterialTheme.typography.headlineLarge.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    letterSpacing = (-0.5).sp
+                                                ),
+                                                color = rgbColor
+                                            )
+                                            Text(
+                                                text = "Element: ${tv.element} — ${tv.description}",
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                                                color = (if (darkTheme) Color(0xFFBBE1FA) else Color(0xFF0F4C5C)).copy(alpha = 0.8f)
+                                            )
+                                            Spacer(modifier = Modifier.height(14.dp))
+
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = timeRemainingStr,
+                                                    style = MaterialTheme.typography.titleLarge.copy(
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Bold
+                                                    ),
+                                                    color = if (darkTheme) Color.White else Color(0xFF1B262C)
+                                                )
+                                                Text(
+                                                    text = "REMAINING",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = (if (darkTheme) Color(0xFFBBE1FA) else Color(0xFF0F4C5C)).copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } ?: run {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("current_tattva_featured_card"),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (darkTheme) Color(0xFF1B262C) else Color(0xFFE8F1F5)
+                                    ),
+                                    shape = RoundedCornerShape(24.dp)
+                                ) {
+                                    Box(modifier = Modifier.padding(20.dp), contentAlignment = Alignment.Center) {
+                                        Text("No Tattwic Tide Loaded", color = Color.Gray)
+                                    }
+                                }
+                            }
+                        }
+                        ViewMode.COMBINED_VIEW -> {
+                            curCombined?.let { cb ->
+                                val remainingTotalSec = (cb.endSecondOfDay - currentTimeSec).roundToInt().coerceAtLeast(0)
+                                val remMin = remainingTotalSec / 60
+                                val remSec = remainingTotalSec % 60
+                                val timeRemainingStr = String.format(Locale.US, "%02d:%02d", remMin, remSec)
+
+                                val planetColor = remember(cb.planetColorHex) { Color(android.graphics.Color.parseColor(cb.planetColorHex)) }
+                                val tattvaColor = remember(cb.tattvaColorHex) { Color(android.graphics.Color.parseColor(cb.tattvaColorHex)) }
+
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("current_combined_featured_card"),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (darkTheme) Color(0xFF1D1A27) else Color(0xFFF3F1F8)
+                                    ),
+                                    shape = RoundedCornerShape(24.dp),
+                                    border = BorderStroke(1.dp, if (darkTheme) Color(0xFF4F378B) else Color(0xFFE8DDFF))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(20.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Star,
+                                            contentDescription = null,
+                                            tint = (if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF1D1A27)).copy(alpha = 0.08f),
+                                            modifier = Modifier
+                                                .size(110.dp)
+                                                .align(Alignment.TopEnd)
+                                        )
+
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            Text(
+                                                text = "CURRENT COMBINED VIEW",
+                                                style = MaterialTheme.typography.labelMedium.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    letterSpacing = 2.sp
+                                                ),
+                                                color = CelestialGold
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "${cb.planetSymbol} ${cb.planetName} + ${cb.tattvaSymbol} ${cb.tattvaName}",
+                                                style = MaterialTheme.typography.headlineLarge.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    letterSpacing = (-0.5).sp
+                                                ),
+                                                color = if (darkTheme) Color.White else Color.Black
+                                            )
+                                            Text(
+                                                text = "Alignment: Planet ${cb.planetName} harmonizes with Elemental Tide ${cb.tattvaName}.",
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                                                color = (if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF1D1A27)).copy(alpha = 0.8f)
+                                            )
+                                            Spacer(modifier = Modifier.height(14.dp))
+
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = timeRemainingStr,
+                                                    style = MaterialTheme.typography.titleLarge.copy(
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Bold
+                                                    ),
+                                                    color = if (darkTheme) Color.White else Color(0xFF1D1A27)
+                                                )
+                                                Text(
+                                                    text = "REMAINING",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = (if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF1D1A27)).copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } ?: run {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("current_combined_featured_card"),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (darkTheme) Color(0xFF1D1A27) else Color(0xFFF3F1F8)
+                                    ),
+                                    shape = RoundedCornerShape(24.dp)
+                                ) {
+                                    Box(modifier = Modifier.padding(20.dp), contentAlignment = Alignment.Center) {
+                                        Text("No Combined Alignment Loaded", color = Color.Gray)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Tattwa & Haptics side-by-side status card sections
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Tattwa active status card
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("current_tattva_card"),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (darkTheme) Color(0xFF2B2930) else Color(0xFFF5F0F6)
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, if (darkTheme) Color(0xFF3B3840) else Color(0xFFD4CBBB))
+                        ) {
+                            curTattva?.let { tv ->
+                                val rgbColor = remember(tv.colorHex) { Color(android.graphics.Color.parseColor(tv.colorHex)) }
+                                Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                                    // Solid left vertical border-l-4 style
+                                    Box(
+                                        modifier = Modifier
+                                            .width(4.dp)
+                                            .fillMaxHeight()
+                                            .background(VibrantAccentPurple)
+                                    )
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(
+                                            text = "TATTWA",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                letterSpacing = 1.sp,
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            color = if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF49454F)
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "${tv.symbol} ${tv.name}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = rgbColor
+                                        )
+                                        Text(
+                                            text = "Element: ${tv.element}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (darkTheme) Color.Gray else Color.DarkGray
+                                        )
+                                    }
+                                }
+                            } ?: run {
+                                Box(modifier = Modifier.padding(12.dp), contentAlignment = Alignment.Center) {
+                                    Text("No Tattva Loaded", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+
+                        // Haptics vibration status card
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { viewModel.setHapticsEnabled(!hapticsEnabled) }
+                                .testTag("haptics_card"),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (darkTheme) Color(0xFF2B2930) else Color(0xFFF5F0F6)
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, if (darkTheme) Color(0xFF3B3840) else Color(0xFFD4CBBB))
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                                // border-[#77FFBC] left vertical stripe
+                                Box(
+                                    modifier = Modifier
+                                        .width(4.dp)
+                                        .fillMaxHeight()
+                                        .background(if (hapticsEnabled) VibrantMint else Color.Gray)
+                                )
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = "HAPTICS",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            letterSpacing = 1.sp,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF49454F)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (hapticsEnabled) "Enabled" else "Muted",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (hapticsEnabled) VibrantMint else if (darkTheme) Color.Gray else Color.DarkGray
+                                    )
+                                    Text(
+                                        text = if (hapticsEnabled) "Precision active" else "Silent state",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (darkTheme) Color.Gray else Color.DarkGray
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Quick transition logging action card
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (darkTheme) Color(0xFF0C161C) else Color(0xFFDFE9EB)
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (darkTheme) Color(0xFF1E353F) else Color(0xFFB4C8CD))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = noteInputText,
+                            onValueChange = { noteInputText = it },
+                            placeholder = { Text("Log active shift ritual or mood...", fontSize = 13.sp) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("note_input_field"),
+                            textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CelestialGold,
+                                unfocusedBorderColor = Color.LightGray.copy(alpha = 0.5f)
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Button(
+                            onClick = {
+                                if (noteInputText.isNotBlank()) {
+                                    viewModel.logShiftExperience(noteInputText)
+                                    noteInputText = ""
+                                    Toast.makeText(context, "Transition Shift logged offline!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.testTag("submit_note_btn"),
+                            colors = ButtonDefaults.buttonColors(containerColor = CelestialGold),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("Log State", fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                // Direct View Chooser Button Segmented Row
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (darkTheme) StarrySlateCard else Color(0xFFEDE8DB)
+                    ),
+                    border = BorderStroke(1.dp, if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = "CHOOSE ACTIVE VIEW CYCLE",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            ),
+                            color = CelestialGold,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val viewOptions = listOf(
+                                ViewMode.PLANETARY_HOURS to "Planetary\nHours",
+                                ViewMode.TATTWIC_TIDES to "Tattwic\nTides",
+                                ViewMode.COMBINED_VIEW to "Combined\nView"
+                            )
+
+                            viewOptions.forEach { (option, label) ->
+                                val isSelected = viewMode == option
+                                OutlinedButton(
+                                    onClick = { viewModel.setViewMode(option) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("btn_view_${option.name.lowercase(Locale.US)}")
+                                        .height(54.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (isSelected) {
+                                            if (darkTheme) Color(0xFF381E72) else Color(0xFFD0BCFF)
+                                        } else {
+                                            Color.Transparent
+                                        },
+                                        contentColor = if (isSelected) {
+                                            if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF381E72)
+                                        } else {
+                                            if (darkTheme) Color.White else Color.Black
+                                        }
+                                    ),
+                                    border = BorderStroke(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) {
+                                            if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF381E72)
+                                        } else {
+                                            if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB)
+                                        }
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = 13.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Interactive Filters Block
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (darkTheme) StarrySlateCard else Color(0xFFEDE8DB)
+                    ),
+                    border = BorderStroke(1.dp, if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "DENSE SYSTEM FILTERING ACCENTS",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CelestialMuted
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Planets list filter
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AstronomyEngine.PLANET_ORDER.forEach { p ->
+                                val active = planetFilters.contains(p)
+                                val baseColor = remember(p) { Color(android.graphics.Color.parseColor(AstronomyEngine.PLANET_COLORS[p])) }
+                                Button(
+                                    onClick = { viewModel.togglePlanetFilter(p) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (active) baseColor.copy(alpha = 0.25f) else Color.Transparent,
+                                        contentColor = if (active) baseColor else Color.Gray
+                                    ),
+                                    border = BorderStroke(1.dp, if (active) baseColor else Color.LightGray.copy(alpha = 0.3f)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Text(text = "${AstronomyEngine.PLANET_SYMBOLS[p]} $p", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Tattva cycle list filter
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AstronomyEngine.TATTVA_ORDER.forEach { t ->
+                                val active = tattvaFilters.contains(t.name)
+                                val baseColor = remember(t.colorHex) { Color(android.graphics.Color.parseColor(t.colorHex)) }
+                                Button(
+                                    onClick = { viewModel.toggleTattvaFilter(t.name) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (active) baseColor.copy(alpha = 0.25f) else Color.Transparent,
+                                        contentColor = if (active) baseColor else Color.Gray
+                                    ),
+                                    border = BorderStroke(1.dp, if (active) baseColor else Color.LightGray.copy(alpha = 0.3f)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Text(text = "${t.symbol} ${t.name}", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val columns = if (isWideScreen) 2 else 1
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = if (darkTheme) Color(0xFF2B2930) else Color(0xFFEDE8DB),
+                    border = BorderStroke(1.dp, if (darkTheme) Color(0xFF3B3840) else Color(0xFFD4CBBB))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "UPCOMING SHIFTS",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                ),
+                                color = if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF49454F)
+                            )
+                            Text(
+                                text = "Filtered Cycles grid",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (darkTheme) Color(0xFF938F99) else Color(0xFF79747E)
+                            )
+                        }
+
+                        Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                            when (viewMode) {
+                                ViewMode.PLANETARY_HOURS -> {
+                                    val list = calcResults?.planetaryHours?.filter { planetFilters.contains(it.planetName) } ?: emptyList()
+                                    if (list.isEmpty()) {
+                                        Text("No Planetary Hours match filters.", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
+                                    } else {
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Fixed(columns),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            items(list) { h ->
+                                                val rgbColor = remember(h.colorHex) { Color(android.graphics.Color.parseColor(h.colorHex)) }
+                                                val isActive = remember(h, currentTimeSec) { currentTimeSec >= h.startSecondOfDay && currentTimeSec < h.endSecondOfDay }
+
+                                                Surface(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = if (isActive) rgbColor.copy(alpha = 0.14f) else if (darkTheme) Color(0xFF1C1B1F) else Color(0xFFFFFBFF),
+                                                    border = BorderStroke(
+                                                        width = if (isActive) 1.5.dp else 1.dp,
+                                                        color = if (isActive) rgbColor else if (darkTheme) Color(0xFF3B3840) else Color(0xFFCAC4D0)
+                                                    )
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(12.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text(
+                                                                text = h.number.toString(),
+                                                                fontSize = 18.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = CelestialMuted,
+                                                                modifier = Modifier.width(28.dp)
+                                                            )
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(10.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(rgbColor)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(10.dp))
+                                                            Column {
+                                                                Text(
+                                                                    text = "${h.planetSymbol} ${h.planetName}",
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = rgbColor
+                                                                )
+                                                                Text(
+                                                                    text = if (h.isNight) "Night Hour" else "Day Hour",
+                                                                    fontSize = 11.sp,
+                                                                    color = CelestialMuted
+                                                                )
+                                                            }
+                                                        }
+                                                        Text(
+                                                            text = "${formatSecToLocalTime(h.startSecondOfDay)} – ${formatSecToLocalTime(h.endSecondOfDay)}",
+                                                            fontSize = 12.sp,
+                                                            fontFamily = FontFamily.Monospace,
+                                                            color = if (darkTheme) Color.LightGray else Color.DarkGray
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ViewMode.TATTWIC_TIDES -> {
+                                    val list = calcResults?.tattvas?.filter { tattvaFilters.contains(it.name) } ?: emptyList()
+                                    if (list.isEmpty()) {
+                                        Text("No Tattwas match filters.", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
+                                    } else {
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Fixed(columns),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            items(list) { tv ->
+                                                val rgbColor = remember(tv.colorHex) { Color(android.graphics.Color.parseColor(tv.colorHex)) }
+                                                val isActive = remember(tv, currentTimeSec) { currentTimeSec >= tv.startSecondOfDay && currentTimeSec < tv.endSecondOfDay }
+
+                                                Surface(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = if (isActive) rgbColor.copy(alpha = 0.14f) else if (darkTheme) Color(0xFF1C1B1F) else Color(0xFFFFFBFF),
+                                                    border = BorderStroke(
+                                                        width = if (isActive) 1.5.dp else 1.dp,
+                                                        color = if (isActive) rgbColor else if (darkTheme) Color(0xFF3B3840) else Color(0xFFCAC4D0)
+                                                    )
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(12.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(10.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(rgbColor)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(10.dp))
+                                                            Column {
+                                                                Text(
+                                                                    text = "${tv.symbol} ${tv.name}",
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = rgbColor
+                                                                )
+                                                                Text(
+                                                                    text = tv.element,
+                                                                    fontSize = 11.sp,
+                                                                    color = CelestialMuted
+                                                                )
+                                                            }
+                                                        }
+                                                        Text(
+                                                            text = "${formatSecToLocalTime(tv.startSecondOfDay)} – ${formatSecToLocalTime(tv.endSecondOfDay)}",
+                                                            fontSize = 12.sp,
+                                                            fontFamily = FontFamily.Monospace,
+                                                            color = if (darkTheme) Color.LightGray else Color.DarkGray
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ViewMode.COMBINED_VIEW -> {
+                                    val list = calcResults?.combined?.filter {
+                                        planetFilters.contains(it.planetName) && tattvaFilters.contains(it.tattvaName)
+                                    } ?: emptyList()
+
+                                    if (list.isEmpty()) {
+                                        Text("No Mixed Intersections match filters.", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
+                                    } else {
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Fixed(columns),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            items(list) { cr ->
+                                                val rgbPlanet = remember(cr.planetColorHex) { Color(android.graphics.Color.parseColor(cr.planetColorHex)) }
+                                                val rgbTattva = remember(cr.tattvaColorHex) { Color(android.graphics.Color.parseColor(cr.tattvaColorHex)) }
+                                                val isActive = remember(cr, currentTimeSec) { currentTimeSec >= cr.startSecondOfDay && currentTimeSec < cr.endSecondOfDay }
+
+                                                Surface(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = if (isActive) rgbPlanet.copy(alpha = 0.08f) else if (darkTheme) Color(0xFF1C1B1F) else Color(0xFFFFFBFF),
+                                                    border = BorderStroke(
+                                                        width = if (isActive) 1.5.dp else 1.dp,
+                                                        color = if (isActive) (if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF381E72)) else if (darkTheme) Color(0xFF3B3840) else Color(0xFFCAC4D0)
+                                                    )
+                                                ) {
+                                                    Column(modifier = Modifier.padding(12.dp)) {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = "${formatSecToLocalTime(cr.startSecondOfDay)} – ${formatSecToLocalTime(cr.endSecondOfDay)}",
+                                                                fontSize = 11.sp,
+                                                                fontFamily = FontFamily.Monospace,
+                                                                color = if (darkTheme) Color.LightGray else Color.DarkGray
+                                                            )
+                                                            if (isActive) {
+                                                                Text(
+                                                                    text = "✦ ACTIVE",
+                                                                    fontSize = 10.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF381E72)
+                                                                )
+                                                            }
+                                                        }
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                        ) {
+                                                            Text(
+                                                                text = "Hour: ${cr.planetSymbol} ${cr.planetName}",
+                                                                fontSize = 13.sp,
+                                                                color = rgbPlanet,
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                            Text(
+                                                                text = "Tide: ${cr.tattvaSymbol} ${cr.tattvaName}",
+                                                                fontSize = 13.sp,
+                                                                color = rgbTattva,
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } // closes when
+                        } // closes Box
+                    } // closes Column
+                } // closes Surface
+            } // closes Column
+        } // closes Box
+    } // closes Scaffold content lambda
+} // closes MainScreen
+
+// Global timestamp text helpers
+private fun formatSecToString(secValue: Double): String {
+    val totalSecs = (secValue % 86400).roundToInt()
+    val h = (totalSecs / 3600) % 24
+    val m = (totalSecs % 3600) / 60
+    val s = totalSecs % 60
+    return String.format(Locale.getDefault(), "%02d:%02d:%02d", h, m, s)
+}
+
+private fun formatSecToLocalTime(secValue: Double): String {
+    val normalized = ((secValue % 86400) + 86400) % 86400
+    val h = (normalized / 3600).roundToInt() % 24
+    val m = ((normalized % 3600) / 60).roundToInt()
+    return String.format(Locale.getDefault(), "%02d:%02d", h, m)
+}
+
+private fun performRealLocationDetection(
+    context: android.content.Context,
+    onUpdate: (Double, Double, String) -> Unit,
+    onFailure: (String) -> Unit
+) {
+    val locationManager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? android.location.LocationManager
+    if (locationManager == null) {
+        onFailure("Location service not available on device")
+        return
+    }
+
+    val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
+        context,
+        android.Manifest.permission.ACCESS_FINE_LOCATION
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
+        context,
+        android.Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    if (!hasFine && !hasCoarse) {
+        onFailure("Required location permissions not granted")
+        return
+    }
+
+    var isGpsEnabled = false
+    var isNetworkEnabled = false
+    try {
+        isGpsEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+        isNetworkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+    } catch (e: Exception) {
+        onFailure("Could not query providers: ${e.localizedMessage}")
+        return
+    }
+
+    if (!isGpsEnabled && !isNetworkEnabled) {
+        onFailure("GPS and network location providers are both disabled")
+        return
+    }
+
+    var bestLocation: android.location.Location? = null
+    try {
+        if (isGpsEnabled) {
+            val loc = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+            if (loc != null) bestLocation = loc
+        }
+        if (bestLocation == null && isNetworkEnabled) {
+            val loc = locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            if (loc != null) bestLocation = loc
+        }
+    } catch (_: SecurityException) {
+    } catch (_: Exception) {}
+
+    if (bestLocation != null) {
+        resolveLocationAndGeocode(context, bestLocation, onUpdate)
+        return
+    }
+
+    val provider = if (isNetworkEnabled) android.location.LocationManager.NETWORK_PROVIDER else android.location.LocationManager.GPS_PROVIDER
+    try {
+        val listener = object : android.location.LocationListener {
+            override fun onLocationChanged(location: android.location.Location) {
+                resolveLocationAndGeocode(context, location, onUpdate)
+                try {
+                    locationManager.removeUpdates(this)
+                } catch (_: Exception) {}
+            }
+            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+        }
+        locationManager.requestSingleUpdate(provider, listener, android.os.Looper.getMainLooper())
+    } catch (e: SecurityException) {
+        onFailure("Security error: ${e.localizedMessage}")
+    } catch (e: Exception) {
+        onFailure("Network/GPS fault: ${e.localizedMessage}")
+    }
+}
+
+private fun resolveLocationAndGeocode(
+    context: android.content.Context,
+    location: android.location.Location,
+    onUpdate: (Double, Double, String) -> Unit
+) {
+    val lat = location.latitude
+    val lon = location.longitude
+
+    Thread {
+        var solvedName = "Auto-Detected Coordinates"
+        try {
+            val geocoder = android.location.Geocoder(context, java.util.Locale.getDefault())
+            @Suppress("DEPRECATION")
+            val addresses = geocoder.getFromLocation(lat, lon, 1)
+            val address = addresses?.firstOrNull()
+            if (address != null) {
+                val city = address.locality ?: address.subAdminArea ?: address.adminArea
+                val country = address.countryCode ?: address.countryName ?: ""
+                solvedName = if (city != null) "$city, $country" else if (country.isNotEmpty()) country else "Lat: ${String.format(java.util.Locale.US, "%.3f", lat)}"
+            } else {
+                solvedName = "Latitude: ${String.format(java.util.Locale.US, "%.3f", lat)}"
+            }
+        } catch (e: Exception) {
+            solvedName = "Location at ${String.format(java.util.Locale.US, "%.3f", lat)}, ${String.format(java.util.Locale.US, "%.3f", lon)}"
+        }
+
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        val nameToUse = solvedName
+        mainHandler.post {
+            onUpdate(lat, lon, nameToUse)
+        }
+    }.start()
+}
