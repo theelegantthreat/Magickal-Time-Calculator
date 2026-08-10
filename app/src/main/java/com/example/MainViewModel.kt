@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 enum class ViewMode {
     PLANETARY_HOURS,
@@ -472,6 +473,4 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val s = totalSecs % 60
         return String.format(Locale.getDefault(), "%02d:%02d:%02d", h, m, s)
     }
-
-    private fun Double.roundToInt(): Int = Math.round(this).toInt()
 }

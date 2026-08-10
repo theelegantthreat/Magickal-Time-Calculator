@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -105,29 +106,16 @@ fun MainScreen(viewModel: MainViewModel) {
         val coarseGranted = permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (fineGranted || coarseGranted) {
             Toast.makeText(context, "Location permission granted! Locating...", Toast.LENGTH_SHORT).show()
-            performRealLocationDetection(
+            handleLocationDetectionProcess(
                 context = context,
-                onUpdate = { lat, lon, name ->
+                onLocationDetected = { lat, lon, name ->
                     inputLat = String.format(Locale.US, "%.5f", lat)
                     inputLon = String.format(Locale.US, "%.5f", lon)
                     inputLocName = name
                     viewModel.updateLocation(lat, lon, name)
-                    Toast.makeText(context, "Location updated successfully: $name", Toast.LENGTH_LONG).show()
                 },
-                onFailure = { error ->
-                    Toast.makeText(context, "Fallback loaded: GPS feature failed ($error)", Toast.LENGTH_SHORT).show()
-                    val mockLocations = listOf(
-                        Triple(51.5074, -0.1278, "London, UK"),
-                        Triple(30.0444, 31.2357, "Cairo, Egypt"),
-                        Triple(27.1751, 78.0421, "Taj Mahal, India"),
-                        Triple(35.6762, 139.6503, "Tokyo, Japan"),
-                        Triple(-33.8688, 151.2093, "Sydney, Australia")
-                    )
-                    val picked = mockLocations.random()
-                    inputLat = picked.first.toString()
-                    inputLon = picked.second.toString()
-                    inputLocName = picked.third
-                    viewModel.updateLocation(picked.first, picked.second, picked.third)
+                onStatusToast = { msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
             )
         } else {
@@ -201,7 +189,7 @@ fun MainScreen(viewModel: MainViewModel) {
                             .testTag("logs_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.List,
+                            imageVector = Icons.AutoMirrored.Filled.List,
                             contentDescription = "Shift Experience Logs List",
                             tint = if (darkTheme) Color(0xFFE6E1E5) else Color(0xFF381E72)
                         )
@@ -344,7 +332,7 @@ fun MainScreen(viewModel: MainViewModel) {
                                 }
                             }
 
-                            Divider(modifier = Modifier.padding(vertical = 12.dp), color = if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
 
                             // Location detection edits
                             Text(
@@ -407,29 +395,16 @@ fun MainScreen(viewModel: MainViewModel) {
 
                                         if (hasFine || hasCoarse) {
                                             Toast.makeText(context, "Acquiring coordinates...", Toast.LENGTH_SHORT).show()
-                                            performRealLocationDetection(
+                                            handleLocationDetectionProcess(
                                                 context = context,
-                                                onUpdate = { lat, lon, name ->
+                                                onLocationDetected = { lat, lon, name ->
                                                     inputLat = String.format(Locale.US, "%.5f", lat)
                                                     inputLon = String.format(Locale.US, "%.5f", lon)
                                                     inputLocName = name
                                                     viewModel.updateLocation(lat, lon, name)
-                                                    Toast.makeText(context, "Auto-detected: $name", Toast.LENGTH_LONG).show()
                                                 },
-                                                onFailure = { error ->
-                                                    Toast.makeText(context, "Real GPS failed: $error. Using celestial fallback.", Toast.LENGTH_SHORT).show()
-                                                    val mockLocations = listOf(
-                                                        Triple(51.5074, -0.1278, "London, UK"),
-                                                        Triple(30.0444, 31.2357, "Cairo, Egypt"),
-                                                        Triple(27.1751, 78.0421, "Taj Mahal, India"),
-                                                        Triple(35.6762, 139.6503, "Tokyo, Japan"),
-                                                        Triple(-33.8688, 151.2093, "Sydney, Australia")
-                                                    )
-                                                    val picked = mockLocations.random()
-                                                    inputLat = picked.first.toString()
-                                                    inputLon = picked.second.toString()
-                                                    inputLocName = picked.third
-                                                    viewModel.updateLocation(picked.first, picked.second, picked.third)
+                                                onStatusToast = { msg ->
+                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                                 }
                                             )
                                         } else {
@@ -461,7 +436,7 @@ fun MainScreen(viewModel: MainViewModel) {
                                 }
                             }
 
-                            Divider(modifier = Modifier.padding(vertical = 12.dp), color = if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
 
                             // Manual override Solar clocks
                             Text(
@@ -632,297 +607,104 @@ fun MainScreen(viewModel: MainViewModel) {
                     // 1. Dynamic main featured status card based on selected view mode
                     when (viewMode) {
                         ViewMode.PLANETARY_HOURS -> {
-                            curPlanetaryHour?.let { ph ->
-                                val rgbColor = remember(ph.colorHex) { Color(android.graphics.Color.parseColor(ph.colorHex)) }
+                            if (curPlanetaryHour != null) {
+                                val ph = curPlanetaryHour!!
                                 val remainingTotalSec = (ph.endSecondOfDay - currentTimeSec).roundToInt().coerceAtLeast(0)
-                                val remMin = remainingTotalSec / 60
-                                val remSec = remainingTotalSec % 60
-                                val timeRemainingStr = String.format(Locale.US, "%02d:%02d", remMin, remSec)
-
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("current_planet_card"),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (darkTheme) Color(0xFF31111D) else Color(0xFFFDE7EC)
-                                    ),
-                                    shape = RoundedCornerShape(24.dp),
-                                    border = BorderStroke(1.dp, if (darkTheme) Color(0xFF4E102E) else Color(0xFFF0B3C4))
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(20.dp)
-                                    ) {
-                                        // Background celestial icon decoration
-                                        Icon(
-                                            imageVector = Icons.Default.Star,
-                                            contentDescription = null,
-                                            tint = (if (darkTheme) Color(0xFFFFB1C8) else Color(0xFF31111D)).copy(alpha = 0.08f),
-                                            modifier = Modifier
-                                                .size(110.dp)
-                                                .align(Alignment.TopEnd)
-                                        )
-
-                                        Column(modifier = Modifier.fillMaxWidth()) {
-                                            Text(
-                                                text = "CURRENT PLANETARY HOUR",
-                                                style = MaterialTheme.typography.labelMedium.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    letterSpacing = 2.sp
-                                                ),
-                                                color = if (darkTheme) Color(0xFFFFD8E4) else Color(0xFF8C3E52)
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "${ph.planetSymbol} ${ph.planetName}",
-                                                style = MaterialTheme.typography.headlineLarge.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    letterSpacing = (-0.5).sp
-                                                ),
-                                                color = if (darkTheme) Color(0xFFFFB1C8) else Color(0xFF801A34)
-                                            )
-                                            Text(
-                                                text = when (ph.planetName.lowercase(Locale.US)) {
-                                                    "mars" -> "Phase of Energy, Focus & Vitality"
-                                                    "sun" -> "Phase of Influence, Power & Cosmic Light"
-                                                    "moon" -> "Phase of Reflection, Intuition & Transition"
-                                                    "mercury" -> "Phase of Logic, Wisdom & Communication"
-                                                    "jupiter" -> "Phase of Expansion, Abundance & Learning"
-                                                    "venus" -> "Phase of Harmony, Beauty & Artistic Resonance"
-                                                    "saturn" -> "Phase of Structure, Discipline & Grounding"
-                                                    else -> "Phase of celestial alignment and cosmic cycle"
-                                                },
-                                                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                                                color = (if (darkTheme) Color(0xFFFFD8E4) else Color(0xFF8C3E52)).copy(alpha = 0.8f)
-                                            )
-                                            Spacer(modifier = Modifier.height(14.dp))
-
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = timeRemainingStr,
-                                                    style = MaterialTheme.typography.titleLarge.copy(
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.Bold
-                                                    ),
-                                                    color = if (darkTheme) Color.White else Color(0xFF31111D)
-                                                )
-                                                Text(
-                                                    text = "REMAINING",
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                    color = (if (darkTheme) Color(0xFFFFD8E4) else Color(0xFF8C3E52)).copy(alpha = 0.7f)
-                                                )
-                                            }
-                                        }
-                                    }
+                                val timeRemainingStr = String.format(Locale.US, "%02d:%02d", remainingTotalSec / 60, remainingTotalSec % 60)
+                                val subtitle = when (ph.planetName.lowercase(Locale.US)) {
+                                    "mars" -> "Phase of Energy, Focus & Vitality"
+                                    "sun" -> "Phase of Influence, Power & Cosmic Light"
+                                    "moon" -> "Phase of Reflection, Intuition & Transition"
+                                    "mercury" -> "Phase of Logic, Wisdom & Communication"
+                                    "jupiter" -> "Phase of Expansion, Abundance & Learning"
+                                    "venus" -> "Phase of Harmony, Beauty & Artistic Resonance"
+                                    "saturn" -> "Phase of Structure, Discipline & Grounding"
+                                    else -> "Phase of celestial alignment and cosmic cycle"
                                 }
-                            } ?: run {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("current_planet_card"),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (darkTheme) Color(0xFF31111D) else Color(0xFFFDE7EC)
-                                    ),
-                                    shape = RoundedCornerShape(24.dp)
-                                ) {
-                                    Box(modifier = Modifier.padding(20.dp), contentAlignment = Alignment.Center) {
-                                        Text("No Planetary Hour Loaded", color = Color.Gray)
-                                    }
-                                }
+                                FeaturedCycleCard(
+                                    testTag = "current_planet_card",
+                                    containerColor = if (darkTheme) Color(0xFF31111D) else Color(0xFFFDE7EC),
+                                    borderColor = if (darkTheme) Color(0xFF4E102E) else Color(0xFFF0B3C4),
+                                    badgeTint = if (darkTheme) Color(0xFFFFB1C8) else Color(0xFF31111D),
+                                    titleText = "CURRENT PLANETARY HOUR",
+                                    titleColor = if (darkTheme) Color(0xFFFFD8E4) else Color(0xFF8C3E52),
+                                    headlineText = "${ph.planetSymbol} ${ph.planetName}",
+                                    headlineColor = if (darkTheme) Color(0xFFFFB1C8) else Color(0xFF801A34),
+                                    subtitleText = subtitle,
+                                    subtitleColor = (if (darkTheme) Color(0xFFFFD8E4) else Color(0xFF8C3E52)).copy(alpha = 0.8f),
+                                    timeRemainingStr = timeRemainingStr,
+                                    timerColor = if (darkTheme) Color.White else Color(0xFF31111D),
+                                    timerLabelColor = (if (darkTheme) Color(0xFFFFD8E4) else Color(0xFF8C3E52)).copy(alpha = 0.7f)
+                                )
+                            } else {
+                                FeaturedCycleCard(
+                                    testTag = "current_planet_card",
+                                    containerColor = if (darkTheme) Color(0xFF31111D) else Color(0xFFFDE7EC),
+                                    borderColor = if (darkTheme) Color(0xFF4E102E) else Color(0xFFF0B3C4),
+                                    badgeTint = Color.Gray,
+                                    titleText = "", titleColor = Color.Transparent, headlineText = "", headlineColor = Color.Transparent, subtitleText = "", subtitleColor = Color.Transparent, timeRemainingStr = "", timerColor = Color.Transparent, timerLabelColor = Color.Transparent, emptyMessage = "No Planetary Hour Loaded"
+                                )
                             }
                         }
                         ViewMode.TATTWIC_TIDES -> {
-                            curTattva?.let { tv ->
+                            if (curTattva != null) {
+                                val tv = curTattva!!
                                 val rgbColor = remember(tv.colorHex) { Color(android.graphics.Color.parseColor(tv.colorHex)) }
                                 val remainingTotalSec = (tv.endSecondOfDay - currentTimeSec).roundToInt().coerceAtLeast(0)
-                                val remMin = remainingTotalSec / 60
-                                val remSec = remainingTotalSec % 60
-                                val timeRemainingStr = String.format(Locale.US, "%02d:%02d", remMin, remSec)
-
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("current_tattva_featured_card"),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (darkTheme) Color(0xFF1B262C) else Color(0xFFE8F1F5)
-                                    ),
-                                    shape = RoundedCornerShape(24.dp),
-                                    border = BorderStroke(1.dp, if (darkTheme) Color(0xFF0F4C5C) else Color(0xFF90E0EF))
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(20.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Star,
-                                            contentDescription = null,
-                                            tint = (if (darkTheme) Color(0xFF3282B8) else Color(0xFF1B262C)).copy(alpha = 0.08f),
-                                            modifier = Modifier
-                                                .size(110.dp)
-                                                .align(Alignment.TopEnd)
-                                        )
-
-                                        Column(modifier = Modifier.fillMaxWidth()) {
-                                            Text(
-                                                text = "CURRENT TATTWIC TIDE",
-                                                style = MaterialTheme.typography.labelMedium.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    letterSpacing = 2.sp
-                                                ),
-                                                color = if (darkTheme) Color(0xFFBBE1FA) else Color(0xFF0F4C5C)
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "${tv.symbol} ${tv.name}",
-                                                style = MaterialTheme.typography.headlineLarge.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    letterSpacing = (-0.5).sp
-                                                ),
-                                                color = rgbColor
-                                            )
-                                            Text(
-                                                text = "Element: ${tv.element} — ${tv.description}",
-                                                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                                                color = (if (darkTheme) Color(0xFFBBE1FA) else Color(0xFF0F4C5C)).copy(alpha = 0.8f)
-                                            )
-                                            Spacer(modifier = Modifier.height(14.dp))
-
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = timeRemainingStr,
-                                                    style = MaterialTheme.typography.titleLarge.copy(
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.Bold
-                                                    ),
-                                                    color = if (darkTheme) Color.White else Color(0xFF1B262C)
-                                                )
-                                                Text(
-                                                    text = "REMAINING",
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                    color = (if (darkTheme) Color(0xFFBBE1FA) else Color(0xFF0F4C5C)).copy(alpha = 0.7f)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            } ?: run {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("current_tattva_featured_card"),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (darkTheme) Color(0xFF1B262C) else Color(0xFFE8F1F5)
-                                    ),
-                                    shape = RoundedCornerShape(24.dp)
-                                ) {
-                                    Box(modifier = Modifier.padding(20.dp), contentAlignment = Alignment.Center) {
-                                        Text("No Tattwic Tide Loaded", color = Color.Gray)
-                                    }
-                                }
+                                val timeRemainingStr = String.format(Locale.US, "%02d:%02d", remainingTotalSec / 60, remainingTotalSec % 60)
+                                FeaturedCycleCard(
+                                    testTag = "current_tattva_featured_card",
+                                    containerColor = if (darkTheme) Color(0xFF1B262C) else Color(0xFFE8F1F5),
+                                    borderColor = if (darkTheme) Color(0xFF0F4C5C) else Color(0xFF90E0EF),
+                                    badgeTint = if (darkTheme) Color(0xFF3282B8) else Color(0xFF1B262C),
+                                    titleText = "CURRENT TATTWIC TIDE",
+                                    titleColor = if (darkTheme) Color(0xFFBBE1FA) else Color(0xFF0F4C5C),
+                                    headlineText = "${tv.symbol} ${tv.name}",
+                                    headlineColor = rgbColor,
+                                    subtitleText = "Element: ${tv.element} — ${tv.description}",
+                                    subtitleColor = (if (darkTheme) Color(0xFFBBE1FA) else Color(0xFF0F4C5C)).copy(alpha = 0.8f),
+                                    timeRemainingStr = timeRemainingStr,
+                                    timerColor = if (darkTheme) Color.White else Color(0xFF1B262C),
+                                    timerLabelColor = (if (darkTheme) Color(0xFFBBE1FA) else Color(0xFF0F4C5C)).copy(alpha = 0.7f)
+                                )
+                            } else {
+                                FeaturedCycleCard(
+                                    testTag = "current_tattva_featured_card",
+                                    containerColor = if (darkTheme) Color(0xFF1B262C) else Color(0xFFE8F1F5),
+                                    borderColor = if (darkTheme) Color(0xFF0F4C5C) else Color(0xFF90E0EF),
+                                    badgeTint = Color.Gray,
+                                    titleText = "", titleColor = Color.Transparent, headlineText = "", headlineColor = Color.Transparent, subtitleText = "", subtitleColor = Color.Transparent, timeRemainingStr = "", timerColor = Color.Transparent, timerLabelColor = Color.Transparent, emptyMessage = "No Tattwic Tide Loaded"
+                                )
                             }
                         }
                         ViewMode.COMBINED_VIEW -> {
-                            curCombined?.let { cb ->
+                            if (curCombined != null) {
+                                val cb = curCombined!!
                                 val remainingTotalSec = (cb.endSecondOfDay - currentTimeSec).roundToInt().coerceAtLeast(0)
-                                val remMin = remainingTotalSec / 60
-                                val remSec = remainingTotalSec % 60
-                                val timeRemainingStr = String.format(Locale.US, "%02d:%02d", remMin, remSec)
-
-                                val planetColor = remember(cb.planetColorHex) { Color(android.graphics.Color.parseColor(cb.planetColorHex)) }
-                                val tattvaColor = remember(cb.tattvaColorHex) { Color(android.graphics.Color.parseColor(cb.tattvaColorHex)) }
-
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("current_combined_featured_card"),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (darkTheme) Color(0xFF1D1A27) else Color(0xFFF3F1F8)
-                                    ),
-                                    shape = RoundedCornerShape(24.dp),
-                                    border = BorderStroke(1.dp, if (darkTheme) Color(0xFF4F378B) else Color(0xFFE8DDFF))
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(20.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Star,
-                                            contentDescription = null,
-                                            tint = (if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF1D1A27)).copy(alpha = 0.08f),
-                                            modifier = Modifier
-                                                .size(110.dp)
-                                                .align(Alignment.TopEnd)
-                                        )
-
-                                        Column(modifier = Modifier.fillMaxWidth()) {
-                                            Text(
-                                                text = "CURRENT COMBINED VIEW",
-                                                style = MaterialTheme.typography.labelMedium.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    letterSpacing = 2.sp
-                                                ),
-                                                color = CelestialGold
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "${cb.planetSymbol} ${cb.planetName} + ${cb.tattvaSymbol} ${cb.tattvaName}",
-                                                style = MaterialTheme.typography.headlineLarge.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    letterSpacing = (-0.5).sp
-                                                ),
-                                                color = if (darkTheme) Color.White else Color.Black
-                                            )
-                                            Text(
-                                                text = "Alignment: Planet ${cb.planetName} harmonizes with Elemental Tide ${cb.tattvaName}.",
-                                                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                                                color = (if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF1D1A27)).copy(alpha = 0.8f)
-                                            )
-                                            Spacer(modifier = Modifier.height(14.dp))
-
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = timeRemainingStr,
-                                                    style = MaterialTheme.typography.titleLarge.copy(
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.Bold
-                                                    ),
-                                                    color = if (darkTheme) Color.White else Color(0xFF1D1A27)
-                                                )
-                                                Text(
-                                                    text = "REMAINING",
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                    color = (if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF1D1A27)).copy(alpha = 0.7f)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            } ?: run {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("current_combined_featured_card"),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (darkTheme) Color(0xFF1D1A27) else Color(0xFFF3F1F8)
-                                    ),
-                                    shape = RoundedCornerShape(24.dp)
-                                ) {
-                                    Box(modifier = Modifier.padding(20.dp), contentAlignment = Alignment.Center) {
-                                        Text("No Combined Alignment Loaded", color = Color.Gray)
-                                    }
-                                }
+                                val timeRemainingStr = String.format(Locale.US, "%02d:%02d", remainingTotalSec / 60, remainingTotalSec % 60)
+                                FeaturedCycleCard(
+                                    testTag = "current_combined_featured_card",
+                                    containerColor = if (darkTheme) Color(0xFF1D1A27) else Color(0xFFF3F1F8),
+                                    borderColor = if (darkTheme) Color(0xFF4F378B) else Color(0xFFE8DDFF),
+                                    badgeTint = if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF1D1A27),
+                                    titleText = "CURRENT COMBINED VIEW",
+                                    titleColor = CelestialGold,
+                                    headlineText = "${cb.planetSymbol} ${cb.planetName} + ${cb.tattvaSymbol} ${cb.tattvaName}",
+                                    headlineColor = if (darkTheme) Color.White else Color.Black,
+                                    subtitleText = "Alignment: Planet ${cb.planetName} harmonizes with Elemental Tide ${cb.tattvaName}.",
+                                    subtitleColor = (if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF1D1A27)).copy(alpha = 0.8f),
+                                    timeRemainingStr = timeRemainingStr,
+                                    timerColor = if (darkTheme) Color.White else Color(0xFF1D1A27),
+                                    timerLabelColor = (if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF1D1A27)).copy(alpha = 0.7f)
+                                )
+                            } else {
+                                FeaturedCycleCard(
+                                    testTag = "current_combined_featured_card",
+                                    containerColor = if (darkTheme) Color(0xFF1D1A27) else Color(0xFFF3F1F8),
+                                    borderColor = if (darkTheme) Color(0xFF4F378B) else Color(0xFFE8DDFF),
+                                    badgeTint = Color.Gray,
+                                    titleText = "", titleColor = Color.Transparent, headlineText = "", headlineColor = Color.Transparent, subtitleText = "", subtitleColor = Color.Transparent, timeRemainingStr = "", timerColor = Color.Transparent, timerLabelColor = Color.Transparent, emptyMessage = "No Combined Alignment Loaded"
+                                )
                             }
                         }
                     }
@@ -932,101 +714,28 @@ fun MainScreen(viewModel: MainViewModel) {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Tattwa active status card
-                        Card(
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("current_tattva_card"),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (darkTheme) Color(0xFF2B2930) else Color(0xFFF5F0F6)
-                            ),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, if (darkTheme) Color(0xFF3B3840) else Color(0xFFD4CBBB))
-                        ) {
-                            curTattva?.let { tv ->
-                                val rgbColor = remember(tv.colorHex) { Color(android.graphics.Color.parseColor(tv.colorHex)) }
-                                Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                                    // Solid left vertical border-l-4 style
-                                    Box(
-                                        modifier = Modifier
-                                            .width(4.dp)
-                                            .fillMaxHeight()
-                                            .background(VibrantAccentPurple)
-                                    )
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text(
-                                            text = "TATTWA",
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                letterSpacing = 1.sp,
-                                                fontWeight = FontWeight.Bold
-                                            ),
-                                            color = if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF49454F)
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "${tv.symbol} ${tv.name}",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = rgbColor
-                                        )
-                                        Text(
-                                            text = "Element: ${tv.element}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = if (darkTheme) Color.Gray else Color.DarkGray
-                                        )
-                                    }
-                                }
-                            } ?: run {
-                                Box(modifier = Modifier.padding(12.dp), contentAlignment = Alignment.Center) {
-                                    Text("No Tattva Loaded", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
+                        SideStatusCard(
+                            modifier = Modifier.weight(1f),
+                            testTag = "current_tattva_card",
+                            stripeColor = VibrantAccentPurple,
+                            darkTheme = darkTheme,
+                            label = "TATTWA",
+                            title = curTattva?.let { "${it.symbol} ${it.name}" } ?: "—",
+                            titleColor = curTattva?.let { Color(android.graphics.Color.parseColor(it.colorHex)) } ?: Color.Gray,
+                            subtitle = curTattva?.let { "Element: ${it.element}" } ?: "No Tattva Loaded"
+                        )
 
-                        // Haptics vibration status card
-                        Card(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { viewModel.setHapticsEnabled(!hapticsEnabled) }
-                                .testTag("haptics_card"),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (darkTheme) Color(0xFF2B2930) else Color(0xFFF5F0F6)
-                            ),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, if (darkTheme) Color(0xFF3B3840) else Color(0xFFD4CBBB))
-                        ) {
-                            Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                                // border-[#77FFBC] left vertical stripe
-                                Box(
-                                    modifier = Modifier
-                                        .width(4.dp)
-                                        .fillMaxHeight()
-                                        .background(if (hapticsEnabled) VibrantMint else Color.Gray)
-                                )
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = "HAPTICS",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            letterSpacing = 1.sp,
-                                            fontWeight = FontWeight.Bold
-                                        ),
-                                        color = if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF49454F)
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = if (hapticsEnabled) "Enabled" else "Muted",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (hapticsEnabled) VibrantMint else if (darkTheme) Color.Gray else Color.DarkGray
-                                    )
-                                    Text(
-                                        text = if (hapticsEnabled) "Precision active" else "Silent state",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (darkTheme) Color.Gray else Color.DarkGray
-                                    )
-                                }
-                            }
-                        }
+                        SideStatusCard(
+                            modifier = Modifier.weight(1f),
+                            testTag = "haptics_card",
+                            stripeColor = if (hapticsEnabled) VibrantMint else Color.Gray,
+                            darkTheme = darkTheme,
+                            label = "HAPTICS",
+                            title = if (hapticsEnabled) "Enabled" else "Muted",
+                            titleColor = if (hapticsEnabled) VibrantMint else if (darkTheme) Color.Gray else Color.DarkGray,
+                            subtitle = if (hapticsEnabled) "Precision active" else "Silent state",
+                            onClick = { viewModel.setHapticsEnabled(!hapticsEnabled) }
+                        )
                     }
                 }
 
@@ -1286,58 +995,15 @@ fun MainScreen(viewModel: MainViewModel) {
                                                 val rgbColor = remember(h.colorHex) { Color(android.graphics.Color.parseColor(h.colorHex)) }
                                                 val isActive = remember(h, currentTimeSec) { currentTimeSec >= h.startSecondOfDay && currentTimeSec < h.endSecondOfDay }
 
-                                                Surface(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    color = if (isActive) rgbColor.copy(alpha = 0.14f) else if (darkTheme) Color(0xFF1C1B1F) else Color(0xFFFFFBFF),
-                                                    border = BorderStroke(
-                                                        width = if (isActive) 1.5.dp else 1.dp,
-                                                        color = if (isActive) rgbColor else if (darkTheme) Color(0xFF3B3840) else Color(0xFFCAC4D0)
-                                                    )
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(12.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.SpaceBetween
-                                                    ) {
-                                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                                            Text(
-                                                                text = h.number.toString(),
-                                                                fontSize = 18.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = CelestialMuted,
-                                                                modifier = Modifier.width(28.dp)
-                                                            )
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(10.dp)
-                                                                    .clip(CircleShape)
-                                                                    .background(rgbColor)
-                                                            )
-                                                            Spacer(modifier = Modifier.width(10.dp))
-                                                            Column {
-                                                                Text(
-                                                                    text = "${h.planetSymbol} ${h.planetName}",
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    color = rgbColor
-                                                                )
-                                                                Text(
-                                                                    text = if (h.isNight) "Night Hour" else "Day Hour",
-                                                                    fontSize = 11.sp,
-                                                                    color = CelestialMuted
-                                                                )
-                                                            }
-                                                        }
-                                                        Text(
-                                                            text = "${formatSecToLocalTime(h.startSecondOfDay)} – ${formatSecToLocalTime(h.endSecondOfDay)}",
-                                                            fontSize = 12.sp,
-                                                            fontFamily = FontFamily.Monospace,
-                                                            color = if (darkTheme) Color.LightGray else Color.DarkGray
-                                                        )
-                                                    }
-                                                }
+                                                CycleListItem(
+                                                    isActive = isActive,
+                                                    darkTheme = darkTheme,
+                                                    itemColor = rgbColor,
+                                                    titleText = "${h.planetSymbol} ${h.planetName}",
+                                                    subtitleText = if (h.isNight) "Night Hour" else "Day Hour",
+                                                    timeRangeText = "${formatSecToLocalTime(h.startSecondOfDay)} – ${formatSecToLocalTime(h.endSecondOfDay)}",
+                                                    leadingNumber = h.number.toString()
+                                                )
                                             }
                                         }
                                     }
@@ -1357,51 +1023,14 @@ fun MainScreen(viewModel: MainViewModel) {
                                                 val rgbColor = remember(tv.colorHex) { Color(android.graphics.Color.parseColor(tv.colorHex)) }
                                                 val isActive = remember(tv, currentTimeSec) { currentTimeSec >= tv.startSecondOfDay && currentTimeSec < tv.endSecondOfDay }
 
-                                                Surface(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    color = if (isActive) rgbColor.copy(alpha = 0.14f) else if (darkTheme) Color(0xFF1C1B1F) else Color(0xFFFFFBFF),
-                                                    border = BorderStroke(
-                                                        width = if (isActive) 1.5.dp else 1.dp,
-                                                        color = if (isActive) rgbColor else if (darkTheme) Color(0xFF3B3840) else Color(0xFFCAC4D0)
-                                                    )
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(12.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.SpaceBetween
-                                                    ) {
-                                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(10.dp)
-                                                                    .clip(CircleShape)
-                                                                    .background(rgbColor)
-                                                            )
-                                                            Spacer(modifier = Modifier.width(10.dp))
-                                                            Column {
-                                                                Text(
-                                                                    text = "${tv.symbol} ${tv.name}",
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    color = rgbColor
-                                                                )
-                                                                Text(
-                                                                    text = tv.element,
-                                                                    fontSize = 11.sp,
-                                                                    color = CelestialMuted
-                                                                )
-                                                            }
-                                                        }
-                                                        Text(
-                                                            text = "${formatSecToLocalTime(tv.startSecondOfDay)} – ${formatSecToLocalTime(tv.endSecondOfDay)}",
-                                                            fontSize = 12.sp,
-                                                            fontFamily = FontFamily.Monospace,
-                                                            color = if (darkTheme) Color.LightGray else Color.DarkGray
-                                                        )
-                                                    }
-                                                }
+                                                CycleListItem(
+                                                    isActive = isActive,
+                                                    darkTheme = darkTheme,
+                                                    itemColor = rgbColor,
+                                                    titleText = "${tv.symbol} ${tv.name}",
+                                                    subtitleText = tv.element,
+                                                    timeRangeText = "${formatSecToLocalTime(tv.startSecondOfDay)} – ${formatSecToLocalTime(tv.endSecondOfDay)}"
+                                                )
                                             }
                                         }
                                     }
@@ -1425,56 +1054,15 @@ fun MainScreen(viewModel: MainViewModel) {
                                                 val rgbTattva = remember(cr.tattvaColorHex) { Color(android.graphics.Color.parseColor(cr.tattvaColorHex)) }
                                                 val isActive = remember(cr, currentTimeSec) { currentTimeSec >= cr.startSecondOfDay && currentTimeSec < cr.endSecondOfDay }
 
-                                                Surface(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    color = if (isActive) rgbPlanet.copy(alpha = 0.08f) else if (darkTheme) Color(0xFF1C1B1F) else Color(0xFFFFFBFF),
-                                                    border = BorderStroke(
-                                                        width = if (isActive) 1.5.dp else 1.dp,
-                                                        color = if (isActive) (if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF381E72)) else if (darkTheme) Color(0xFF3B3840) else Color(0xFFCAC4D0)
-                                                    )
-                                                ) {
-                                                    Column(modifier = Modifier.padding(12.dp)) {
-                                                        Row(
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                                            verticalAlignment = Alignment.CenterVertically
-                                                        ) {
-                                                            Text(
-                                                                text = "${formatSecToLocalTime(cr.startSecondOfDay)} – ${formatSecToLocalTime(cr.endSecondOfDay)}",
-                                                                fontSize = 11.sp,
-                                                                fontFamily = FontFamily.Monospace,
-                                                                color = if (darkTheme) Color.LightGray else Color.DarkGray
-                                                            )
-                                                            if (isActive) {
-                                                                Text(
-                                                                    text = "✦ ACTIVE",
-                                                                    fontSize = 10.sp,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    color = if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF381E72)
-                                                                )
-                                                            }
-                                                        }
-                                                        Spacer(modifier = Modifier.height(4.dp))
-                                                        Row(
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            horizontalArrangement = Arrangement.SpaceBetween
-                                                        ) {
-                                                            Text(
-                                                                text = "Hour: ${cr.planetSymbol} ${cr.planetName}",
-                                                                fontSize = 13.sp,
-                                                                color = rgbPlanet,
-                                                                fontWeight = FontWeight.SemiBold
-                                                            )
-                                                            Text(
-                                                                text = "Tide: ${cr.tattvaSymbol} ${cr.tattvaName}",
-                                                                fontSize = 13.sp,
-                                                                color = rgbTattva,
-                                                                fontWeight = FontWeight.SemiBold
-                                                            )
-                                                        }
-                                                    }
-                                                }
+                                                CycleListItem(
+                                                    isActive = isActive,
+                                                    darkTheme = darkTheme,
+                                                    itemColor = rgbPlanet,
+                                                    titleText = "Hour: ${cr.planetSymbol} ${cr.planetName}",
+                                                    secondTitleText = "Tide: ${cr.tattvaSymbol} ${cr.tattvaName}",
+                                                    secondItemColor = rgbTattva,
+                                                    timeRangeText = "${formatSecToLocalTime(cr.startSecondOfDay)} – ${formatSecToLocalTime(cr.endSecondOfDay)}"
+                                                )
                                             }
                                         }
                                     }
@@ -1487,6 +1075,292 @@ fun MainScreen(viewModel: MainViewModel) {
         } // closes Box
     } // closes Scaffold content lambda
 } // closes MainScreen
+
+private val MOCK_LOCATIONS = listOf(
+    Triple(51.5074, -0.1278, "London, UK"),
+    Triple(30.0444, 31.2357, "Cairo, Egypt"),
+    Triple(27.1751, 78.0421, "Taj Mahal, India"),
+    Triple(35.6762, 139.6503, "Tokyo, Japan"),
+    Triple(-33.8688, 151.2093, "Sydney, Australia")
+)
+
+private fun handleLocationDetectionProcess(
+    context: android.content.Context,
+    onLocationDetected: (Double, Double, String) -> Unit,
+    onStatusToast: (String) -> Unit
+) {
+    performRealLocationDetection(
+        context = context,
+        onUpdate = { lat, lon, name ->
+            onLocationDetected(lat, lon, name)
+            onStatusToast("Location updated: $name")
+        },
+        onFailure = { error ->
+            onStatusToast("GPS unavailable ($error). Loaded fallback location.")
+            val picked = MOCK_LOCATIONS.random()
+            onLocationDetected(picked.first, picked.second, picked.third)
+        }
+    )
+}
+
+@Composable
+private fun FeaturedCycleCard(
+    testTag: String,
+    containerColor: Color,
+    borderColor: Color,
+    badgeTint: Color,
+    titleText: String,
+    titleColor: Color,
+    headlineText: String,
+    headlineColor: Color,
+    subtitleText: String,
+    subtitleColor: Color,
+    timeRemainingStr: String,
+    timerColor: Color,
+    timerLabelColor: Color,
+    emptyMessage: String? = null
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(testTag),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        if (emptyMessage != null) {
+            Box(modifier = Modifier.padding(20.dp), contentAlignment = Alignment.Center) {
+                Text(emptyMessage, color = Color.Gray)
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = badgeTint.copy(alpha = 0.08f),
+                    modifier = Modifier
+                        .size(110.dp)
+                        .align(Alignment.TopEnd)
+                )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = titleText,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp
+                        ),
+                        color = titleColor
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = headlineText,
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.5).sp
+                        ),
+                        color = headlineColor
+                    )
+                    Text(
+                        text = subtitleText,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                        color = subtitleColor
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = timeRemainingStr,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = timerColor
+                        )
+                        Text(
+                            text = "REMAINING",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = timerLabelColor
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SideStatusCard(
+    modifier: Modifier = Modifier,
+    testTag: String,
+    stripeColor: Color,
+    darkTheme: Boolean,
+    label: String,
+    title: String,
+    titleColor: Color,
+    subtitle: String,
+    onClick: (() -> Unit)? = null
+) {
+    Card(
+        modifier = modifier
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .testTag(testTag),
+        colors = CardDefaults.cardColors(
+            containerColor = if (darkTheme) Color(0xFF2B2930) else Color(0xFFF5F0F6)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, if (darkTheme) Color(0xFF3B3840) else Color(0xFFD4CBBB))
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(stripeColor)
+            )
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        letterSpacing = 1.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = if (darkTheme) Color(0xFFCAC4D0) else Color(0xFF49454F)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = titleColor
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (darkTheme) Color.Gray else Color.DarkGray
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CycleListItem(
+    isActive: Boolean,
+    darkTheme: Boolean,
+    itemColor: Color,
+    titleText: String,
+    subtitleText: String? = null,
+    timeRangeText: String,
+    leadingNumber: String? = null,
+    secondTitleText: String? = null,
+    secondItemColor: Color? = null
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = if (isActive) itemColor.copy(alpha = 0.14f) else if (darkTheme) Color(0xFF1C1B1F) else Color(0xFFFFFBFF),
+        border = BorderStroke(
+            width = if (isActive) 1.5.dp else 1.dp,
+            color = if (isActive) (if (secondItemColor != null) (if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF381E72)) else itemColor) else if (darkTheme) Color(0xFF3B3840) else Color(0xFFCAC4D0)
+        )
+    ) {
+        if (secondTitleText != null && secondItemColor != null) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = timeRangeText,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (darkTheme) Color.LightGray else Color.DarkGray
+                    )
+                    if (isActive) {
+                        Text(
+                            text = "✦ ACTIVE",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (darkTheme) Color(0xFFD0BCFF) else Color(0xFF381E72)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = titleText,
+                        fontSize = 13.sp,
+                        color = itemColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = secondTitleText,
+                        fontSize = 13.sp,
+                        color = secondItemColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (leadingNumber != null) {
+                        Text(
+                            text = leadingNumber,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CelestialMuted,
+                            modifier = Modifier.width(28.dp)
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(itemColor)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = titleText,
+                            fontWeight = FontWeight.Bold,
+                            color = itemColor
+                        )
+                        if (subtitleText != null) {
+                            Text(
+                                text = subtitleText,
+                                fontSize = 11.sp,
+                                color = CelestialMuted
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = timeRangeText,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (darkTheme) Color.LightGray else Color.DarkGray
+                )
+            }
+        }
+    }
+}
 
 // Global timestamp text helpers
 private fun formatSecToString(secValue: Double): String {
@@ -1576,7 +1450,7 @@ private fun performRealLocationDetection(
             override fun onProviderEnabled(provider: String) {}
             override fun onProviderDisabled(provider: String) {}
         }
-        locationManager.requestSingleUpdate(provider, listener, android.os.Looper.getMainLooper())
+        locationManager.requestLocationUpdates(provider, 0L, 0f, listener, android.os.Looper.getMainLooper())
     } catch (e: SecurityException) {
         onFailure("Security error: ${e.localizedMessage}")
     } catch (e: Exception) {
