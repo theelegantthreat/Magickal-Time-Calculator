@@ -59,6 +59,7 @@ fun MainScreen(viewModel: MainViewModel) {
     val longitude by viewModel.longitude.collectAsStateWithLifecycle()
     val locationName by viewModel.locationName.collectAsStateWithLifecycle()
     val currentDateStr by viewModel.currentDateString.collectAsStateWithLifecycle()
+    val isManualDateSelected by viewModel.isManualDateSelected.collectAsStateWithLifecycle()
 
     val sunriseOverride by viewModel.sunriseOverride.collectAsStateWithLifecycle()
     val sunsetOverride by viewModel.sunsetOverride.collectAsStateWithLifecycle()
@@ -80,6 +81,33 @@ fun MainScreen(viewModel: MainViewModel) {
     var showSettingsState by remember { mutableStateOf(false) }
     var noteInputText by remember { mutableStateOf("") }
     var showLogLevelsState by remember { mutableStateOf(false) }
+    var showDatePickerDialog by remember { mutableStateOf(false) }
+
+    if (showDatePickerDialog) {
+        val dateParts = currentDateStr.split("-")
+        val initialYear = dateParts.getOrNull(0)?.toIntOrNull() ?: 2026
+        val initialMonth = (dateParts.getOrNull(1)?.toIntOrNull() ?: 6) - 1
+        val initialDay = dateParts.getOrNull(2)?.toIntOrNull() ?: 1
+
+        val datePickerDialog = android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val formatted = String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, dayOfMonth)
+                viewModel.setDateString(formatted, isManual = true)
+                showDatePickerDialog = false
+            },
+            initialYear,
+            initialMonth,
+            initialDay
+        )
+        DisposableEffect(Unit) {
+            datePickerDialog.setOnDismissListener { showDatePickerDialog = false }
+            datePickerDialog.show()
+            onDispose {
+                datePickerDialog.dismiss()
+            }
+        }
+    }
 
     // Android 13+ Notification Permission Launcher
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -219,7 +247,11 @@ fun MainScreen(viewModel: MainViewModel) {
                     }
                 }
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
                 // Info Location Stats Top Banner Indicator
                 Card(
                     modifier = Modifier
@@ -228,7 +260,7 @@ fun MainScreen(viewModel: MainViewModel) {
                     colors = CardDefaults.cardColors(
                         containerColor = if (darkTheme) Color(0xFF131326) else Color(0xFFEBE5D8)
                     ),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -249,21 +281,95 @@ fun MainScreen(viewModel: MainViewModel) {
                                 color = if (darkTheme) Color.LightGray else Color.DarkGray
                             )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Date Navigation Row (Day-Today to Day-NextDay)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.goToPreviousDay() },
+                                modifier = Modifier.height(36.dp).testTag("prev_day_btn"),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                border = BorderStroke(1.dp, if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+                            ) {
+                                Text("◄ Prev", fontSize = 12.sp, color = if (darkTheme) Color.LightGray else Color.DarkGray)
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier
+                                    .clickable { showDatePickerDialog = true }
+                                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                                    .testTag("date_picker_trigger")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = "Pick Date",
+                                    tint = CelestialGold,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Day-Today: $currentDateStr",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = CelestialGold
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.goToNextDay() },
+                                modifier = Modifier.height(36.dp).testTag("next_day_btn"),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                border = BorderStroke(1.dp, if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB))
+                            ) {
+                                Text("Next ►", fontSize = 12.sp, color = if (darkTheme) Color.LightGray else Color.DarkGray)
+                            }
+                        }
+
+                        if (isManualDateSelected) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                FilterChip(
+                                    selected = true,
+                                    onClick = { viewModel.goToToday() },
+                                    label = { Text("↺ Reset to Live Astrological Day", fontSize = 11.sp) },
+                                    modifier = Modifier.testTag("reset_today_chip")
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Solar bounds summary spanning Day-Today to Day-NextDay
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Date: $currentDateStr",
+                                text = "🌅 Sunrise Today: $sunriseOverride",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (darkTheme) Color.Gray else Color.DarkGray
+                                fontSize = 11.sp,
+                                color = if (darkTheme) Color.LightGray else Color.DarkGray
                             )
                             Text(
-                                text = "Lat/Lon: ${String.format(Locale.US, "%.3f, %.3f", latitude, longitude)}",
+                                text = "🌇 Sunset: $sunsetOverride",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (darkTheme) Color.Gray else Color.DarkGray
+                                fontSize = 11.sp,
+                                color = if (darkTheme) Color.LightGray else Color.DarkGray
+                            )
+                            Text(
+                                text = "🌅 Sunrise NextDay: $tomorrowSunriseOverride",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = CelestialGold
                             )
                         }
                     }
@@ -946,7 +1052,7 @@ fun MainScreen(viewModel: MainViewModel) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
+                        .heightIn(min = 360.dp, max = 560.dp)
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                     shape = RoundedCornerShape(24.dp),
                     color = if (darkTheme) Color(0xFF2B2930) else Color(0xFFEDE8DB),
@@ -979,7 +1085,7 @@ fun MainScreen(viewModel: MainViewModel) {
                             )
                         }
 
-                        Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                        Box(modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp, max = 480.dp)) {
                             when (viewMode) {
                                 ViewMode.PLANETARY_HOURS -> {
                                     val list = calcResults?.planetaryHours?.filter { planetFilters.contains(it.planetName) } ?: emptyList()
@@ -1364,7 +1470,8 @@ private fun CycleListItem(
 
 // Global timestamp text helpers
 private fun formatSecToString(secValue: Double): String {
-    val totalSecs = (secValue % 86400).roundToInt()
+    val normalized = ((secValue % 86400) + 86400) % 86400
+    val totalSecs = normalized.roundToInt() % 86400
     val h = (totalSecs / 3600) % 24
     val m = (totalSecs % 3600) / 60
     val s = totalSecs % 60
@@ -1373,8 +1480,9 @@ private fun formatSecToString(secValue: Double): String {
 
 private fun formatSecToLocalTime(secValue: Double): String {
     val normalized = ((secValue % 86400) + 86400) % 86400
-    val h = (normalized / 3600).roundToInt() % 24
-    val m = ((normalized % 3600) / 60).roundToInt()
+    val totalMins = (normalized / 60.0).roundToInt()
+    val h = (totalMins / 60) % 24
+    val m = totalMins % 60
     return String.format(Locale.getDefault(), "%02d:%02d", h, m)
 }
 

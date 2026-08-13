@@ -61,6 +61,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentDateString = MutableStateFlow("")
     val currentDateString: StateFlow<String> = _currentDateString.asStateFlow()
 
+    private val _isManualDateSelected = MutableStateFlow(false)
+    val isManualDateSelected: StateFlow<Boolean> = _isManualDateSelected.asStateFlow()
+
     // Custom time string overrides (format: HH:MM:SS)
     private val _sunriseOverride = MutableStateFlow("06:00:00")
     val sunriseOverride: StateFlow<String> = _sunriseOverride.asStateFlow()
@@ -188,10 +191,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         recalculateAndRun()
     }
 
-    fun setDateString(date: String) {
+    fun setDateString(date: String, isManual: Boolean = true) {
+        _isManualDateSelected.value = isManual
         _currentDateString.value = date
         calculateSuntimesFromCoordinates()
         recalculateAndRun()
+    }
+
+    fun goToPreviousDay() {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val cal = Calendar.getInstance()
+        try {
+            val parsed = sdf.parse(_currentDateString.value)
+            if (parsed != null) cal.time = parsed
+        } catch (_: Exception) {}
+        cal.add(Calendar.DAY_OF_MONTH, -1)
+        setDateString(sdf.format(cal.time), isManual = true)
+    }
+
+    fun goToNextDay() {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val cal = Calendar.getInstance()
+        try {
+            val parsed = sdf.parse(_currentDateString.value)
+            if (parsed != null) cal.time = parsed
+        } catch (_: Exception) {}
+        cal.add(Calendar.DAY_OF_MONTH, 1)
+        setDateString(sdf.format(cal.time), isManual = true)
+    }
+
+    fun goToToday() {
+        _isManualDateSelected.value = false
+        syncToActiveAstrologicalDay()
+    }
+
+    private fun syncToActiveAstrologicalDay() {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val now = Calendar.getInstance()
+        val todayStr = sdf.format(now.time)
+
+        val dateParts = todayStr.split("-")
+        val year = dateParts.getOrNull(0)?.toIntOrNull() ?: 2026
+        val month = dateParts.getOrNull(1)?.toIntOrNull() ?: 6
+        val day = dateParts.getOrNull(2)?.toIntOrNull() ?: 1
+
+        val timezone = TimeZone.getDefault()
+        val curDate = Calendar.getInstance().apply {
+            set(Calendar.YEAR, year)
+            set(Calendar.MONTH, month - 1)
+            set(Calendar.DAY_OF_MONTH, day)
+            set(Calendar.HOUR_OF_DAY, 12)
+        }
+        val tzOffsetHours = timezone.getOffset(curDate.timeInMillis).toDouble() / 1000.0 / 3600.0
+
+        val todaySolar = AstronomyEngine.getSolarTimes(year, month, day, _latitude.value, _longitude.value, tzOffsetHours)
+        val sunriseSec = todaySolar.sunriseHours * 3600.0
+        val currentSecOfDay = now.get(Calendar.HOUR_OF_DAY) * 3600.0 + now.get(Calendar.MINUTE) * 60.0 + now.get(Calendar.SECOND).toDouble()
+
+        val activeCal = (now.clone() as Calendar)
+        if (currentSecOfDay < sunriseSec) {
+            // Before sunrise today => Active astrological day is Yesterday
+            activeCal.add(Calendar.DAY_OF_MONTH, -1)
+        }
+        val activeDateStr = sdf.format(activeCal.time)
+
+        if (_currentDateString.value != activeDateStr) {
+            _currentDateString.value = activeDateStr
+            calculateSuntimesFromCoordinates()
+            recalculateAndRun()
+        }
     }
 
     private fun calculateSuntimesFromCoordinates() {
@@ -206,6 +274,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             set(Calendar.YEAR, year)
             set(Calendar.MONTH, month - 1)
             set(Calendar.DAY_OF_MONTH, day)
+            set(Calendar.HOUR_OF_DAY, 12)
         }
         val tzOffsetHours = timezone.getOffset(curDate.timeInMillis).toDouble() / 1000.0 / 3600.0
 
@@ -286,17 +355,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun tickClockState() {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+        // Auto sync to active astrological day if not manually selected
+        if (!_isManualDateSelected.value) {
+            syncToActiveAstrologicalDay()
+        }
+
         val calc = _calculationResults.value ?: return
 
-        val now = Calendar.getInstance()
-        var curSec = now.get(Calendar.HOUR_OF_DAY) * 3600.0 + now.get(Calendar.MINUTE) * 60.0 + now.get(Calendar.SECOND)
-
-        // Astrological day wrapping before sunrise
-        // If current seconds is less than today's sunrise (meaning we are in pre-dawn hours of today),
-        // we shift it ahead by 1 day (86400 seconds) so it maps smoothly into the night hours of the previous planetary day.
-        if (curSec < calc.sunriseSeconds) {
-            curSec += 86400.0
+        // Calculate elapsed seconds since midnight of calc.date
+        val selCal = Calendar.getInstance().apply {
+            try {
+                val parsed = sdf.parse(calc.date)
+                if (parsed != null) time = parsed
+            } catch (_: Exception) {}
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
         }
+
+        val selMidnightMillis = selCal.timeInMillis
+        val nowMillis = System.currentTimeMillis()
+        val curSec = (nowMillis - selMidnightMillis) / 1000.0
 
         _currentTimeSeconds.value = curSec
 
