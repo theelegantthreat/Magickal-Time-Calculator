@@ -348,29 +348,47 @@ fun MainScreen(viewModel: MainViewModel) {
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Solar bounds summary spanning Day-Today to Day-NextDay
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(
-                                text = "🌅 Sunrise Today: $sunriseOverride",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontSize = 11.sp,
-                                color = if (darkTheme) Color.LightGray else Color.DarkGray
-                            )
-                            Text(
-                                text = "🌇 Sunset: $sunsetOverride",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontSize = 11.sp,
-                                color = if (darkTheme) Color.LightGray else Color.DarkGray
-                            )
-                            Text(
-                                text = "🌅 Sunrise NextDay: $tomorrowSunriseOverride",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontSize = 11.sp,
-                                color = CelestialGold
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🌅 Sunrise Today: $sunriseOverride",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 12.sp,
+                                    color = if (darkTheme) Color.LightGray else Color.DarkGray
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🌇 Sunset: $sunsetOverride",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 12.sp,
+                                    color = if (darkTheme) Color.LightGray else Color.DarkGray
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🌅 Sunrise Next Day: $tomorrowSunriseOverride",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = CelestialGold
+                                )
+                            }
                         }
                     }
                 }
