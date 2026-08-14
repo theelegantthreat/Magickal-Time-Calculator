@@ -82,6 +82,34 @@ fun MainScreen(viewModel: MainViewModel) {
     var noteInputText by remember { mutableStateOf("") }
     var showLogLevelsState by remember { mutableStateOf(false) }
     var showDatePickerDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+
+    if (showExportDialog) {
+        ExportCsvDialog(
+            darkTheme = darkTheme,
+            logsCount = logsList.size,
+            currentDateStr = currentDateStr,
+            onDismiss = { showExportDialog = false },
+            onExportLogs = { saveLocally ->
+                viewModel.exportShiftLogsCsv(context, saveLocally) { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                showExportDialog = false
+            },
+            onExportCycles = { saveLocally ->
+                viewModel.exportTrackedCyclesCsv(context, saveLocally) { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                showExportDialog = false
+            },
+            onExportComplete = { saveLocally ->
+                viewModel.exportCompleteHistoryAndCyclesCsv(context, saveLocally) { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                showExportDialog = false
+            }
+        )
+    }
 
     if (showDatePickerDialog) {
         val dateParts = currentDateStr.split("-")
@@ -198,6 +226,18 @@ fun MainScreen(viewModel: MainViewModel) {
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { showExportDialog = true },
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("export_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Export History and Cycles to CSV",
+                            tint = if (darkTheme) CelestialGold else Color(0xFF8B6508)
+                        )
+                    }
                     IconButton(
                         onClick = { showSettingsState = !showSettingsState },
                         modifier = Modifier
@@ -632,12 +672,12 @@ fun MainScreen(viewModel: MainViewModel) {
                                     fontWeight = FontWeight.Bold,
                                     color = CelestialGold
                                 )
-                                Row {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(
-                                        onClick = { viewModel.exportCsv(context) },
+                                        onClick = { showExportDialog = true },
                                         modifier = Modifier.minimumInteractiveComponentSize().testTag("export_csv_btn")
                                     ) {
-                                        Icon(Icons.Default.Share, "Share CSV file outline", tint = CelestialGold)
+                                        Icon(Icons.Default.Share, "Export CSV options dialog", tint = CelestialGold)
                                     }
                                     IconButton(
                                         onClick = { viewModel.clearLogs() },
@@ -1617,3 +1657,183 @@ private fun resolveLocationAndGeocode(
         }
     }.start()
 }
+
+@Composable
+fun ExportCsvDialog(
+    darkTheme: Boolean,
+    logsCount: Int,
+    currentDateStr: String,
+    onDismiss: () -> Unit,
+    onExportLogs: (saveLocally: Boolean) -> Unit,
+    onExportCycles: (saveLocally: Boolean) -> Unit,
+    onExportComplete: (saveLocally: Boolean) -> Unit
+) {
+    var selectedOption by remember { mutableStateOf(ExportOption.SHIFT_LOGS) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = null,
+                    tint = CelestialGold
+                )
+                Text(
+                    text = "Export to Local CSV",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Select the data to export to a standard comma-separated CSV file for data analysis, spreadsheets, or archiving:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (darkTheme) Color.LightGray else Color.DarkGray
+                )
+
+                // Option 1: Shift Logs History
+                ExportOptionCard(
+                    title = "Shift Logs & Ritual Notes",
+                    subtitle = "$logsCount recorded transitions with planet, tattva & location",
+                    isSelected = selectedOption == ExportOption.SHIFT_LOGS,
+                    darkTheme = darkTheme,
+                    onClick = { selectedOption = ExportOption.SHIFT_LOGS }
+                )
+
+                // Option 2: Tracked Daily Cycles Schedule
+                ExportOptionCard(
+                    title = "Tracked Daily Cycles Schedule",
+                    subtitle = "All 24h planetary hours, tattwic tides & alignments for $currentDateStr",
+                    isSelected = selectedOption == ExportOption.DAILY_CYCLES,
+                    darkTheme = darkTheme,
+                    onClick = { selectedOption = ExportOption.DAILY_CYCLES }
+                )
+
+                // Option 3: Complete Archive (Cycles + Logs)
+                ExportOptionCard(
+                    title = "Complete Archive (All Cycles & Logs)",
+                    subtitle = "Comprehensive full dataset with header metadata and user logs",
+                    isSelected = selectedOption == ExportOption.COMPLETE_ARCHIVE,
+                    darkTheme = darkTheme,
+                    onClick = { selectedOption = ExportOption.COMPLETE_ARCHIVE }
+                )
+
+                Text(
+                    text = "Files are saved to your device's Downloads/MagickalTime folder.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (darkTheme) Color.Gray else Color.DarkGray,
+                    fontStyle = FontStyle.Italic
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    when (selectedOption) {
+                        ExportOption.SHIFT_LOGS -> onExportLogs(true)
+                        ExportOption.DAILY_CYCLES -> onExportCycles(true)
+                        ExportOption.COMPLETE_ARCHIVE -> onExportComplete(true)
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CelestialGold,
+                    contentColor = Color.Black
+                ),
+                modifier = Modifier.testTag("save_local_csv_confirm_btn")
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Save to Local CSV", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        when (selectedOption) {
+                            ExportOption.SHIFT_LOGS -> onExportLogs(false)
+                            ExportOption.DAILY_CYCLES -> onExportCycles(false)
+                            ExportOption.COMPLETE_ARCHIVE -> onExportComplete(false)
+                        }
+                    }
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Share")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        }
+    )
+}
+
+private enum class ExportOption {
+    SHIFT_LOGS,
+    DAILY_CYCLES,
+    COMPLETE_ARCHIVE
+}
+
+@Composable
+private fun ExportOptionCard(
+    title: String,
+    subtitle: String,
+    isSelected: Boolean,
+    darkTheme: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) CelestialGold.copy(alpha = 0.15f) else (if (darkTheme) Color(0xFF1E1C24) else Color(0xFFF5F2EA)),
+        border = BorderStroke(
+            width = if (isSelected) 2.dp else 1.dp,
+            color = if (isSelected) CelestialGold else (if (darkTheme) Color(0xFF3B3840) else Color(0xFFD4CBBB))
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            RadioButton(
+                selected = isSelected,
+                onClick = onClick,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = CelestialGold,
+                    unselectedColor = if (darkTheme) Color.Gray else Color.DarkGray
+                )
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    color = if (isSelected) CelestialGold else (if (darkTheme) Color.White else Color.Black)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (darkTheme) Color.LightGray else Color.DarkGray
+                )
+            }
+        }
+    }
+}
+

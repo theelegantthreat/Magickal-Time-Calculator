@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -527,15 +528,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Export Action
-    fun exportCsv(context: Context) {
+    // Export Actions
+    fun exportShiftLogsCsv(context: Context, saveLocally: Boolean = true, onResult: ((String) -> Unit)? = null) {
         viewModelScope.launch {
             val logs = repository.allLogs.stateIn(this).value
             if (logs.isEmpty()) {
+                onResult?.invoke("No shift logs to export.")
                 return@launch
             }
-            val csvText = ExportUtils.generateCsvString(logs)
-            ExportUtils.shareCsvData(context, csvText)
+            val csvText = ExportUtils.generateLogsCsv(logs)
+            if (saveLocally) {
+                val pathInfo = ExportUtils.saveCsvToDownloads(context, "magick_shift_logs", csvText)
+                if (pathInfo != null) {
+                    onResult?.invoke("Exported shift logs: $pathInfo")
+                } else {
+                    onResult?.invoke("Failed to write CSV file locally.")
+                }
+            } else {
+                ExportUtils.shareCsvData(context, "Magickal Time - Shift Logs CSV", csvText)
+                onResult?.invoke("Opened share sheet for Shift Logs CSV.")
+            }
+        }
+    }
+
+    fun exportTrackedCyclesCsv(context: Context, saveLocally: Boolean = true, onResult: ((String) -> Unit)? = null) {
+        viewModelScope.launch {
+            val calc = _calculationResults.value
+            if (calc == null) {
+                onResult?.invoke("No tracked cycles calculated yet.")
+                return@launch
+            }
+            val csvText = ExportUtils.generateCyclesCsv(
+                calc = calc,
+                locationName = _locationName.value,
+                latitude = _latitude.value,
+                longitude = _longitude.value
+            )
+            if (saveLocally) {
+                val cleanDate = calc.date.replace("-", "")
+                val pathInfo = ExportUtils.saveCsvToDownloads(context, "tracked_cycles_${cleanDate}", csvText)
+                if (pathInfo != null) {
+                    onResult?.invoke("Exported tracked cycles: $pathInfo")
+                } else {
+                    onResult?.invoke("Failed to write CSV file locally.")
+                }
+            } else {
+                ExportUtils.shareCsvData(context, "Magickal Time - Tracked Cycles Schedule (${calc.date})", csvText)
+                onResult?.invoke("Opened share sheet for Tracked Cycles CSV.")
+            }
+        }
+    }
+
+    fun exportCompleteHistoryAndCyclesCsv(context: Context, saveLocally: Boolean = true, onResult: ((String) -> Unit)? = null) {
+        viewModelScope.launch {
+            val logs = repository.allLogs.stateIn(this).value
+            val calc = _calculationResults.value
+            val csvText = ExportUtils.generateCompleteExportCsv(
+                logs = logs,
+                calc = calc,
+                locationName = _locationName.value,
+                latitude = _latitude.value,
+                longitude = _longitude.value
+            )
+            if (saveLocally) {
+                val pathInfo = ExportUtils.saveCsvToDownloads(context, "magick_complete_history_and_cycles", csvText)
+                if (pathInfo != null) {
+                    onResult?.invoke("Exported complete archive: $pathInfo")
+                } else {
+                    onResult?.invoke("Failed to write CSV file locally.")
+                }
+            } else {
+                ExportUtils.shareCsvData(context, "Magickal Time - Complete Cycles & Shift History CSV", csvText)
+                onResult?.invoke("Opened share sheet for Complete Archive CSV.")
+            }
+        }
+    }
+
+    // Default export handler
+    fun exportCsv(context: Context) {
+        exportCompleteHistoryAndCyclesCsv(context, saveLocally = true) { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
     }
 
