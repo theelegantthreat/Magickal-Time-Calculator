@@ -32,9 +32,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val sharedPrefs = application.getSharedPreferences("magick_time_prefs", Context.MODE_PRIVATE)
     private val database = AppDatabase.getDatabase(application)
     private val repository = ShiftLogRepository(database.shiftLogDao())
+    private val preferencesRepository = CalculationPreferencesRepository(database.calculationPreferencesDao())
 
     // UI state flows
     val allLogs: StateFlow<List<LoggedShift>> = repository.allItemsStateFlow(viewModelScope)
+    val preferencesFlow: StateFlow<CalculationPreferences?> = preferencesRepository.preferencesFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
     private val _viewMode = MutableStateFlow(ViewMode.PLANETARY_HOURS)
     val viewMode: StateFlow<ViewMode> = _viewMode.asStateFlow()
@@ -133,11 +140,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         _currentDateString.value = sdf.format(Date())
 
+        // Load persisted calculation preferences from Room database if present
+        viewModelScope.launch {
+            val savedPrefs = preferencesRepository.getPreferences()
+            if (savedPrefs != null) {
+                _latitude.value = savedPrefs.latitude
+                _longitude.value = savedPrefs.longitude
+                _locationName.value = savedPrefs.locationName
+                _sunriseOverride.value = savedPrefs.sunriseOverride
+                _sunsetOverride.value = savedPrefs.sunsetOverride
+                _tomorrowSunriseOverride.value = savedPrefs.tomorrowSunriseOverride
+                _darkTheme.value = savedPrefs.darkTheme
+                _notificationsEnabled.value = savedPrefs.notificationsEnabled
+                _hapticsEnabled.value = savedPrefs.hapticsEnabled
+                _tattvaDisplayMode.value = try {
+                    TattvaFilterMode.valueOf(savedPrefs.tattvaDisplayMode)
+                } catch (_: Exception) {
+                    TattvaFilterMode.ALL
+                }
+                _viewMode.value = try {
+                    ViewMode.valueOf(savedPrefs.activeViewMode)
+                } catch (_: Exception) {
+                    ViewMode.PLANETARY_HOURS
+                }
+            } else {
+                // Initialize default preferences in Room database
+                persistCurrentPreferences()
+            }
+            // Recalculate based on active settings
+            recalculateAndRun()
+        }
+
         // Calculate initially
         recalculateAndRun()
 
         // Start ticking
         startClock()
+    }
+
+    private fun persistCurrentPreferences() {
+        viewModelScope.launch {
+            preferencesRepository.savePreferences(
+                CalculationPreferences(
+                    id = 1,
+                    locationName = _locationName.value,
+                    latitude = _latitude.value,
+                    longitude = _longitude.value,
+                    sunriseOverride = _sunriseOverride.value,
+                    sunsetOverride = _sunsetOverride.value,
+                    tomorrowSunriseOverride = _tomorrowSunriseOverride.value,
+                    darkTheme = _darkTheme.value,
+                    notificationsEnabled = _notificationsEnabled.value,
+                    hapticsEnabled = _hapticsEnabled.value,
+                    tattvaDisplayMode = _tattvaDisplayMode.value.name,
+                    activeViewMode = _viewMode.value.name,
+                    lastSelectedDate = _currentDateString.value
+                )
+            )
+        }
     }
 
     private fun ShiftLogRepository.allItemsStateFlow(scope: kotlinx.coroutines.CoroutineScope) = this.allLogs
@@ -149,21 +209,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setViewMode(mode: ViewMode) {
         _viewMode.value = mode
+        persistCurrentPreferences()
     }
 
     fun setDarkTheme(enabled: Boolean) {
         _darkTheme.value = enabled
         sharedPrefs.edit().putBoolean("dark_theme", enabled).apply()
+        persistCurrentPreferences()
     }
 
     fun setNotificationsEnabled(enabled: Boolean) {
         _notificationsEnabled.value = enabled
         sharedPrefs.edit().putBoolean("notifications_enabled", enabled).apply()
+        persistCurrentPreferences()
     }
 
     fun setHapticsEnabled(enabled: Boolean) {
         _hapticsEnabled.value = enabled
         sharedPrefs.edit().putBoolean("haptics_enabled", enabled).apply()
+        persistCurrentPreferences()
     }
 
     fun updateLocation(lat: Double, lon: Double, name: String) {
@@ -179,6 +243,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Trigger automatic recalculations of Sunrise/Sunset
         calculateSuntimesFromCoordinates()
+        persistCurrentPreferences()
         recalculateAndRun()
     }
 
@@ -189,6 +254,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             1 -> _sunsetOverride.value = sunset
             2 -> _tomorrowSunriseOverride.value = sunset
         }
+        persistCurrentPreferences()
         recalculateAndRun()
     }
 
@@ -490,6 +556,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setTattvaDisplayMode(mode: TattvaFilterMode) {
         _tattvaDisplayMode.value = mode
+        persistCurrentPreferences()
     }
 
     // Room Database Shift Logging

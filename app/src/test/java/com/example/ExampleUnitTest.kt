@@ -88,5 +88,33 @@ class ExampleUnitTest {
     assertTrue(csv.contains("COMBINED PLANETARY & TATTWIC ALIGNMENTS"))
     assertTrue(csv.contains("06:00:00"))
   }
+
+  @Test
+  fun testCalculationPreferencesEntityDefaults() {
+    val prefs = CalculationPreferences(
+      id = 1,
+      locationName = "London, UK",
+      latitude = 51.5074,
+      longitude = -0.1278,
+      sunriseOverride = "05:45:00",
+      sunsetOverride = "20:30:00",
+      tomorrowSunriseOverride = "05:46:00",
+      darkTheme = true,
+      notificationsEnabled = true,
+      hapticsEnabled = false,
+      tattvaDisplayMode = "DAY_ONLY",
+      activeViewMode = "COMBINED_VIEW",
+      lastSelectedDate = "2026-08-14"
+    )
+    assertEquals(1, prefs.id)
+    assertEquals("London, UK", prefs.locationName)
+    assertEquals(51.5074, prefs.latitude, 0.0001)
+    assertEquals(-0.1278, prefs.longitude, 0.0001)
+    assertEquals("05:45:00", prefs.sunriseOverride)
+    assertEquals("DAY_ONLY", prefs.tattvaDisplayMode)
+    assertEquals("COMBINED_VIEW", prefs.activeViewMode)
+    assertTrue(prefs.darkTheme)
+    assertFalse(prefs.hapticsEnabled)
+  }
 }
 
