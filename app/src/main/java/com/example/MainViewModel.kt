@@ -29,7 +29,6 @@ enum class ViewMode {
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val sharedPrefs = application.getSharedPreferences("magick_time_prefs", Context.MODE_PRIVATE)
     private val database = AppDatabase.getDatabase(application)
     private val repository = ShiftLogRepository(database.shiftLogDao())
     private val preferencesRepository = CalculationPreferencesRepository(database.calculationPreferencesDao())
@@ -46,23 +45,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _viewMode = MutableStateFlow(ViewMode.PLANETARY_HOURS)
     val viewMode: StateFlow<ViewMode> = _viewMode.asStateFlow()
 
-    private val _darkTheme = MutableStateFlow(sharedPrefs.getBoolean("dark_theme", true))
+    private val _darkTheme = MutableStateFlow(true)
     val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
 
-    private val _notificationsEnabled = MutableStateFlow(sharedPrefs.getBoolean("notifications_enabled", true))
+    private val _notificationsEnabled = MutableStateFlow(true)
     val notificationsEnabled: StateFlow<Boolean> = _notificationsEnabled.asStateFlow()
 
-    private val _hapticsEnabled = MutableStateFlow(sharedPrefs.getBoolean("haptics_enabled", true))
+    private val _hapticsEnabled = MutableStateFlow(true)
     val hapticsEnabled: StateFlow<Boolean> = _hapticsEnabled.asStateFlow()
 
     // Location info (stored or defaults)
-    private val _latitude = MutableStateFlow(sharedPrefs.getFloat("lat", 40.7128f).toDouble()) // default NYC
+    private val _latitude = MutableStateFlow(40.7128) // default NYC
     val latitude: StateFlow<Double> = _latitude.asStateFlow()
 
-    private val _longitude = MutableStateFlow(sharedPrefs.getFloat("lon", -74.0060f).toDouble())
+    private val _longitude = MutableStateFlow(-74.0060)
     val longitude: StateFlow<Double> = _longitude.asStateFlow()
 
-    private val _locationName = MutableStateFlow(sharedPrefs.getString("location_name", "New York, USA") ?: "New York, USA")
+    private val _locationName = MutableStateFlow("New York, USA")
     val locationName: StateFlow<String> = _locationName.asStateFlow()
 
     // Interactive inputs
@@ -133,14 +132,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var lastObservedTattva: String? = null
 
     init {
-        // Initialize channel
+        // Initialize notification channel
         NotificationHelper.createNotificationChannel(application)
 
         // Set initial date as today
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        _currentDateString.value = sdf.format(Date())
+        _currentDateString.value = TimeFormatUtils.formatTodayDate()
 
-        // Load persisted calculation preferences from Room database if present
+        // Load persisted calculation preferences from Room database
         viewModelScope.launch {
             val savedPrefs = preferencesRepository.getPreferences()
             if (savedPrefs != null) {
@@ -164,17 +162,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ViewMode.PLANETARY_HOURS
                 }
             } else {
-                // Initialize default preferences in Room database
                 persistCurrentPreferences()
             }
-            // Recalculate based on active settings
             recalculateAndRun()
         }
 
-        // Calculate initially
         recalculateAndRun()
-
-        // Start ticking
         startClock()
     }
 
@@ -214,19 +207,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setDarkTheme(enabled: Boolean) {
         _darkTheme.value = enabled
-        sharedPrefs.edit().putBoolean("dark_theme", enabled).apply()
         persistCurrentPreferences()
     }
 
     fun setNotificationsEnabled(enabled: Boolean) {
         _notificationsEnabled.value = enabled
-        sharedPrefs.edit().putBoolean("notifications_enabled", enabled).apply()
         persistCurrentPreferences()
     }
 
     fun setHapticsEnabled(enabled: Boolean) {
         _hapticsEnabled.value = enabled
-        sharedPrefs.edit().putBoolean("haptics_enabled", enabled).apply()
         persistCurrentPreferences()
     }
 
@@ -235,13 +225,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _longitude.value = lon
         _locationName.value = name
 
-        sharedPrefs.edit()
-            .putFloat("lat", lat.toFloat())
-            .putFloat("lon", lon.toFloat())
-            .putString("location_name", name)
-            .apply()
-
-        // Trigger automatic recalculations of Sunrise/Sunset
         calculateSuntimesFromCoordinates()
         persistCurrentPreferences()
         recalculateAndRun()
@@ -359,9 +342,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             tzOffsetHours
         )
 
-        _sunriseOverride.value = formatHoursToTimeString(todaySolar.sunriseHours)
-        _sunsetOverride.value = formatHoursToTimeString(todaySolar.sunsetHours)
-        _tomorrowSunriseOverride.value = formatHoursToTimeString(tomorrowSolar.sunriseHours)
+        _sunriseOverride.value = TimeFormatUtils.formatSecToHms(todaySolar.sunriseHours * 3600.0)
+        _sunsetOverride.value = TimeFormatUtils.formatSecToHms(todaySolar.sunsetHours * 3600.0)
+        _tomorrowSunriseOverride.value = TimeFormatUtils.formatSecToHms(tomorrowSolar.sunriseHours * 3600.0)
     }
 
     fun recalculateAndRun() {
@@ -407,7 +390,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             tattvaLengthSeconds = tattvaLen
         )
 
-        // Force a clock tick evaluate
         tickClockState()
     }
 
@@ -424,14 +406,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun tickClockState() {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
-        // Auto sync to active astrological day if not manually selected
         if (!_isManualDateSelected.value) {
             syncToActiveAstrologicalDay()
         }
 
         val calc = _calculationResults.value ?: return
 
-        // Calculate elapsed seconds since midnight of calc.date
         val selCal = Calendar.getInstance().apply {
             try {
                 val parsed = sdf.parse(calc.date)
@@ -576,7 +556,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 notes = notesText
             )
             repository.insert(newLog)
-            // Trigger haptic acknowledgment
             if (_hapticsEnabled.value) {
                 triggerVibration()
             }
@@ -671,27 +650,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Default export handler
     fun exportCsv(context: Context) {
         exportCompleteHistoryAndCyclesCsv(context, saveLocally = true) { message ->
             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
     }
 
-    // Format Utilities
     private fun parseTimeToSeconds(timeStr: String): Double {
         val parts = timeStr.split(":").map { it.toIntOrNull() ?: 0 }
         val hours = parts.getOrNull(0) ?: 0
         val mins = parts.getOrNull(1) ?: 0
         val secs = parts.getOrNull(2) ?: 0
         return hours * 3600.0 + mins * 60.0 + secs.toDouble()
-    }
-
-    private fun formatHoursToTimeString(hoursValue: Double): String {
-        val totalSecs = (hoursValue * 3600.0).roundToInt()
-        val h = (totalSecs / 3600) % 24
-        val m = (totalSecs % 3600) / 60
-        val s = totalSecs % 60
-        return String.format(Locale.getDefault(), "%02d:%02d:%02d", h, m, s)
     }
 }
