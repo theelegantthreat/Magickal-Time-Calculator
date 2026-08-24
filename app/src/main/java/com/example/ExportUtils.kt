@@ -10,25 +10,17 @@ import android.provider.MediaStore
 import android.widget.Toast
 import java.io.File
 import java.io.FileOutputStream
+import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 object ExportUtils {
 
-    enum class ExportType(val title: String, val description: String) {
-        SHIFT_LOGS_ONLY(
-            title = "Shift Logs & Ritual Notes",
-            description = "Recorded transitions with planet, tattva & location context"
-        ),
-        TRACKED_CYCLES_ONLY(
-            title = "Tracked Daily Cycles Schedule",
-            description = "All 24h planetary hours, tattwic tides & alignments for active date"
-        ),
-        COMPLETE_ALL(
-            title = "Complete Archive (All Cycles & Logs)",
-            description = "Comprehensive dataset with calculated cycle timelines and user notes"
-        )
+    enum class ExportType {
+        SHIFT_LOGS_ONLY,
+        TRACKED_CYCLES_ONLY,
+        COMPLETE_ALL
     }
 
     /**
@@ -36,10 +28,32 @@ object ExportUtils {
      */
     fun generateLogsCsv(logs: List<LoggedShift>): String {
         val sb = StringBuilder()
+        // CSV Metadata and Header
         sb.append("# Magickal Time - Shift Log History Export\n")
-        sb.append("# Generated: ${TimeFormatUtils.formatCurrentDateTime()}\n")
+        sb.append("# Generated: ${formatCurrentDateTime()}\n")
         sb.append("# Total Logged Shifts: ${logs.size}\n\n")
-        appendShiftLogRows(sb, logs)
+        sb.append("Log_ID,Timestamp_Epoch_Ms,Local_DateTime,Date_String,Location_Name,Latitude,Longitude,Active_Planetary_Hour,Active_Tattwic_Tide,User_Notes\n")
+
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
+        for (log in logs) {
+            val formattedTime = sdf.format(Date(log.timestamp))
+            val escapedNotes = escapeCsvField(log.notes)
+            val escapedLocationName = escapeCsvField(log.locationName)
+            val escapedPlanet = escapeCsvField(log.planetName)
+            val escapedTattva = escapeCsvField(log.tattvaName)
+
+            sb.append("${log.id},")
+                .append("${log.timestamp},")
+                .append("\"$formattedTime\",")
+                .append("\"${log.dateString}\",")
+                .append("\"$escapedLocationName\",")
+                .append("${log.latitude},")
+                .append("${log.longitude},")
+                .append("\"$escapedPlanet\",")
+                .append("\"$escapedTattva\",")
+                .append("\"$escapedNotes\"\n")
+        }
         return sb.toString()
     }
 
@@ -56,9 +70,9 @@ object ExportUtils {
         sb.append("# Magickal Time - Astronomical & Elemental Cycles Schedule\n")
         sb.append("# Date: ${calc.date}\n")
         sb.append("# Location: ${escapeCsvField(locationName)} (Lat: $latitude, Lon: $longitude)\n")
-        sb.append("# Sunrise Today: ${TimeFormatUtils.formatSecToHms(calc.sunriseSeconds)}, Sunset: ${TimeFormatUtils.formatSecToHms(calc.sunsetSeconds)}, Sunrise Next Day: ${TimeFormatUtils.formatSecToHms(calc.tomorrowSunriseSeconds)}\n")
+        sb.append("# Sunrise Today: ${formatSecToHms(calc.sunriseSeconds)}, Sunset: ${formatSecToHms(calc.sunsetSeconds)}, Sunrise Next Day: ${formatSecToHms(calc.tomorrowSunriseSeconds)}\n")
         sb.append("# Day Hour Length: ${String.format(Locale.US, "%.1f", calc.dayHourLengthSeconds / 60.0)} mins, Night Hour Length: ${String.format(Locale.US, "%.1f", calc.nightHourLengthSeconds / 60.0)} mins, Tattva Length: ${String.format(Locale.US, "%.1f", calc.tattvaLengthSeconds / 60.0)} mins\n")
-        sb.append("# Generated: ${TimeFormatUtils.formatCurrentDateTime()}\n\n")
+        sb.append("# Generated: ${formatCurrentDateTime()}\n\n")
 
         // 1. Planetary Hours Section
         sb.append("=== SECTION: PLANETARY HOURS ===\n")
@@ -70,8 +84,8 @@ object ExportUtils {
                 .append("\"$phase\",")
                 .append("\"${escapeCsvField(h.planetName)}\",")
                 .append("\"${h.planetSymbol}\",")
-                .append("\"${TimeFormatUtils.formatSecToHms(h.startSecondOfDay)}\",")
-                .append("\"${TimeFormatUtils.formatSecToHms(h.endSecondOfDay)}\",")
+                .append("\"${formatSecToHms(h.startSecondOfDay)}\",")
+                .append("\"${formatSecToHms(h.endSecondOfDay)}\",")
                 .append("$durationMin,")
                 .append("${h.startSecondOfDay.toInt()},")
                 .append("${h.endSecondOfDay.toInt()},")
@@ -88,8 +102,8 @@ object ExportUtils {
                 .append("\"${escapeCsvField(tv.name)}\",")
                 .append("\"${tv.symbol}\",")
                 .append("\"${escapeCsvField(tv.element)}\",")
-                .append("\"${TimeFormatUtils.formatSecToHms(tv.startSecondOfDay)}\",")
-                .append("\"${TimeFormatUtils.formatSecToHms(tv.endSecondOfDay)}\",")
+                .append("\"${formatSecToHms(tv.startSecondOfDay)}\",")
+                .append("\"${formatSecToHms(tv.endSecondOfDay)}\",")
                 .append("$durationMin,")
                 .append("${tv.startSecondOfDay.toInt()},")
                 .append("${tv.endSecondOfDay.toInt()},")
@@ -107,8 +121,8 @@ object ExportUtils {
                 .append("\"${cb.planetSymbol}\",")
                 .append("\"${escapeCsvField(cb.tattvaName)}\",")
                 .append("\"${cb.tattvaSymbol}\",")
-                .append("\"${TimeFormatUtils.formatSecToHms(cb.startSecondOfDay)}\",")
-                .append("\"${TimeFormatUtils.formatSecToHms(cb.endSecondOfDay)}\",")
+                .append("\"${formatSecToHms(cb.startSecondOfDay)}\",")
+                .append("\"${formatSecToHms(cb.endSecondOfDay)}\",")
                 .append("$durationMin\n")
         }
 
@@ -128,7 +142,7 @@ object ExportUtils {
         val sb = StringBuilder()
         sb.append("# ========================================================\n")
         sb.append("# MAGICKAL TIME - COMPLETE CYCLES & SHIFT LOGS ARCHIVE\n")
-        sb.append("# Generated: ${TimeFormatUtils.formatCurrentDateTime()}\n")
+        sb.append("# Generated: ${formatCurrentDateTime()}\n")
         sb.append("# Location: ${escapeCsvField(locationName)} (Lat: $latitude, Lon: $longitude)\n")
         sb.append("# Total Logged Shifts in Database: ${logs.size}\n")
         sb.append("# ========================================================\n\n")
@@ -142,36 +156,35 @@ object ExportUtils {
         if (logs.isEmpty()) {
             sb.append("# No recorded user shift logs found in database.\n")
         } else {
-            appendShiftLogRows(sb, logs)
+            sb.append("Log_ID,Timestamp_Epoch_Ms,Local_DateTime,Date_String,Location_Name,Latitude,Longitude,Active_Planetary_Hour,Active_Tattwic_Tide,User_Notes\n")
+            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            for (log in logs) {
+                val formattedTime = sdf.format(Date(log.timestamp))
+                val escapedNotes = escapeCsvField(log.notes)
+                val escapedLocationName = escapeCsvField(log.locationName)
+                val escapedPlanet = escapeCsvField(log.planetName)
+                val escapedTattva = escapeCsvField(log.tattvaName)
+
+                sb.append("${log.id},")
+                    .append("${log.timestamp},")
+                    .append("\"$formattedTime\",")
+                    .append("\"${log.dateString}\",")
+                    .append("\"$escapedLocationName\",")
+                    .append("${log.latitude},")
+                    .append("${log.longitude},")
+                    .append("\"$escapedPlanet\",")
+                    .append("\"$escapedTattva\",")
+                    .append("\"$escapedNotes\"\n")
+            }
         }
 
         return sb.toString()
     }
 
-    private fun appendShiftLogRows(sb: StringBuilder, logs: List<LoggedShift>) {
-        sb.append("Log_ID,Timestamp_Epoch_Ms,Local_DateTime,Date_String,Location_Name,Latitude,Longitude,Active_Planetary_Hour,Active_Tattwic_Tide,User_Notes\n")
-        for (log in logs) {
-            val formattedTime = TimeFormatUtils.formatDateTime(log.timestamp)
-            val escapedNotes = escapeCsvField(log.notes)
-            val escapedLocationName = escapeCsvField(log.locationName)
-            val escapedPlanet = escapeCsvField(log.planetName)
-            val escapedTattva = escapeCsvField(log.tattvaName)
-
-            sb.append("${log.id},")
-                .append("${log.timestamp},")
-                .append("\"$formattedTime\",")
-                .append("\"${log.dateString}\",")
-                .append("\"$escapedLocationName\",")
-                .append("${log.latitude},")
-                .append("${log.longitude},")
-                .append("\"$escapedPlanet\",")
-                .append("\"$escapedTattva\",")
-                .append("\"$escapedNotes\"\n")
-        }
-    }
-
     /**
      * Saves the CSV string directly to a file in the user's local device Downloads folder.
+     * Compatible with Android 10+ MediaStore as well as standard external directory.
+     * Returns a human-readable confirmation string with the file location, or null if error.
      */
     fun saveCsvToDownloads(
         context: Context,
@@ -197,9 +210,11 @@ object ExportUtils {
                     }
                     "Saved to Downloads/MagickalTime/$fileName"
                 } else {
+                    // Fallback to internal/external files dir
                     saveToAppStorage(context, fileName, csvContent)
                 }
             } else {
+                // Pre-Android Q external storage write
                 val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val subDir = File(downloadsDir, "MagickalTime")
                 if (!subDir.exists()) {
@@ -214,6 +229,7 @@ object ExportUtils {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            // Fallback to context files directory
             try {
                 saveToAppStorage(context, fileName, csvContent)
             } catch (ex: Exception) {
@@ -255,5 +271,17 @@ object ExportUtils {
 
     private fun escapeCsvField(field: String): String {
         return field.replace("\"", "\"\"").replace("\n", " ").replace("\r", "")
+    }
+
+    private fun formatCurrentDateTime(): String {
+        return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+    }
+
+    private fun formatSecToHms(secondsOfDay: Double): String {
+        val totalSecs = secondsOfDay.toInt()
+        val h = (totalSecs / 3600) % 24
+        val m = (totalSecs % 3600) / 60
+        val s = totalSecs % 60
+        return String.format(Locale.getDefault(), "%02d:%02d:%02d", h, m, s)
     }
 }

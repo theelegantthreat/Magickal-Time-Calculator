@@ -10,16 +10,6 @@ class ExampleUnitTest {
   }
 
   @Test
-  fun testTimeFormatUtils() {
-    assertEquals("06:00:00", TimeFormatUtils.formatSecToHms(21600.0))
-    assertEquals("18:30:15", TimeFormatUtils.formatSecToHms(66615.0))
-    assertEquals("06:00", TimeFormatUtils.formatSecToLocalTime(21600.0))
-    assertEquals("18:30", TimeFormatUtils.formatSecToLocalTime(66615.0))
-    assertEquals("05:30", TimeFormatUtils.formatRemainingTime(330))
-    assertEquals("00:00", TimeFormatUtils.formatRemainingTime(-10))
-  }
-
-  @Test
   fun testGenerateLogsCsv() {
     val logs = listOf(
       LoggedShift(
@@ -127,3 +117,4 @@ class ExampleUnitTest {
     assertFalse(prefs.hapticsEnabled)
   }
 }
+
