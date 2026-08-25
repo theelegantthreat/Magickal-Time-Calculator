@@ -128,6 +128,38 @@ class ExampleUnitTest {
   }
 
   @Test
+  fun testNoaaSolarCalculations() {
+    // New York (40.7128° N, -74.0060° W) on August 25, 2026 (EDT = UTC-4)
+    val solar = AstronomyEngine.getSolarTimes(
+      year = 2026,
+      month = 8,
+      day = 25,
+      latitude = 40.7128,
+      longitude = -74.0060,
+      timezoneOffsetHours = -4.0
+    )
+    // In NYC on Aug 25, sunrise is approx 6:17 AM (6.28h) and sunset is approx 19:43 (19.72h)
+    assertTrue(solar.sunriseHours in 6.1..6.5)
+    assertTrue(solar.sunsetHours in 19.5..19.9)
+    assertFalse(solar.isPolarDay)
+    assertFalse(solar.isPolarNight)
+  }
+
+  @Test
+  fun testSunriseSunsetHelperCalculation() {
+    // Test dynamic calculation using SunriseSunsetCalculator
+    val tz = TimeZone.getTimeZone("America/New_York")
+    val cal = Calendar.getInstance(tz).apply {
+      set(2026, Calendar.AUGUST, 25, 12, 0, 0)
+    }
+    val solar = SunriseSunsetHelper.calculateSunriseSunset(40.7128, -74.0060, tz, cal)
+    assertNotNull(solar.sunriseCalendar)
+    assertNotNull(solar.sunsetCalendar)
+    assertTrue(solar.sunriseSecondsOfDay in 21600.0..24000.0) // ~06:00 to ~06:40
+    assertTrue(solar.sunsetSecondsOfDay in 70000.0..73000.0)  // ~19:25 to ~20:15
+  }
+
+  @Test
   fun testCalculationPreferencesEntityDefaults() {
     val prefs = CalculationPreferences(
       id = 1,

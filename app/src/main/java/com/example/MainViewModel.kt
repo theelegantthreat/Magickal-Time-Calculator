@@ -33,6 +33,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
     private val repository = ShiftLogRepository(database.shiftLogDao())
     private val preferencesRepository = CalculationPreferencesRepository(database.calculationPreferencesDao())
+    private val locationProvider = LocationProvider(application)
 
     // UI state flows
     val allLogs: StateFlow<List<LoggedShift>> = repository.allItemsStateFlow(viewModelScope)
@@ -42,6 +43,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
         )
+
+    private val _isLocating = MutableStateFlow(false)
+    val isLocating: StateFlow<Boolean> = _isLocating.asStateFlow()
 
     private val _viewMode = MutableStateFlow(ViewMode.PLANETARY_HOURS)
     val viewMode: StateFlow<ViewMode> = _viewMode.asStateFlow()
@@ -72,14 +76,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isManualDateSelected = MutableStateFlow(false)
     val isManualDateSelected: StateFlow<Boolean> = _isManualDateSelected.asStateFlow()
 
-    // Custom time string overrides (format: HH:MM:SS)
-    private val _sunriseOverride = MutableStateFlow("06:00:00")
+    // Dynamic sunrise/sunset states computed offline using SunriseSunsetHelper
+    private val _sunriseOverride = MutableStateFlow(
+        formatHoursToTimeString(
+            SunriseSunsetHelper.calculateSolarTimes(
+                sharedPrefs.getFloat("lat", 40.7128f).toDouble(),
+                sharedPrefs.getFloat("lon", -74.0060f).toDouble(),
+                TimeZone.getDefault().id,
+                Calendar.getInstance()
+            ).sunriseHours
+        )
+    )
     val sunriseOverride: StateFlow<String> = _sunriseOverride.asStateFlow()
 
-    private val _sunsetOverride = MutableStateFlow("18:00:00")
+    private val _sunsetOverride = MutableStateFlow(
+        formatHoursToTimeString(
+            SunriseSunsetHelper.calculateSolarTimes(
+                sharedPrefs.getFloat("lat", 40.7128f).toDouble(),
+                sharedPrefs.getFloat("lon", -74.0060f).toDouble(),
+                TimeZone.getDefault().id,
+                Calendar.getInstance()
+            ).sunsetHours
+        )
+    )
     val sunsetOverride: StateFlow<String> = _sunsetOverride.asStateFlow()
 
-    private val _tomorrowSunriseOverride = MutableStateFlow("06:00:00")
+    private val _tomorrowSunriseOverride = MutableStateFlow(
+        formatHoursToTimeString(
+            SunriseSunsetHelper.calculateSolarTimes(
+                sharedPrefs.getFloat("lat", 40.7128f).toDouble(),
+                sharedPrefs.getFloat("lon", -74.0060f).toDouble(),
+                TimeZone.getDefault().id,
+                Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+            ).sunriseHours
+        )
+    )
     val tomorrowSunriseOverride: StateFlow<String> = _tomorrowSunriseOverride.asStateFlow()
 
     // Computational astronomical states
@@ -234,6 +265,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persistCurrentPreferences()
     }
 
+    fun hasLocationPermission(): Boolean = locationProvider.hasLocationPermission()
+
+    fun acquireCurrentLocation(onComplete: ((Boolean, String) -> Unit)? = null) {
+        viewModelScope.launch {
+            _isLocating.value = true
+            try {
+                if (!locationProvider.hasLocationPermission()) {
+                    onComplete?.invoke(false, "Location permission not granted")
+                    return@launch
+                }
+
+                val userLoc = locationProvider.fetchCurrentLocation()
+                if (userLoc != null) {
+                    updateLocation(userLoc.latitude, userLoc.longitude, userLoc.locationName)
+                    onComplete?.invoke(true, "Location acquired: ${userLoc.locationName}")
+                } else {
+                    onComplete?.invoke(false, "Unable to acquire current GPS coordinates")
+                }
+            } catch (e: Exception) {
+                onComplete?.invoke(false, "Location error: ${e.localizedMessage ?: "Unknown"}")
+            } finally {
+                _isLocating.value = false
+            }
+        }
+    }
+
     fun updateLocation(lat: Double, lon: Double, name: String) {
         _latitude.value = lat
         _longitude.value = lon
@@ -304,10 +361,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val todayDay = now.get(Calendar.DAY_OF_MONTH)
 
         val timezone = TimeZone.getDefault()
-        val tzOffsetHours = timezone.getOffset(now.timeInMillis).toDouble() / 1000.0 / 3600.0
+        val timeZoneId = timezone.id
 
-        // Step 1: Get today's sunrise to compare against the current moment
-        val todaySolar = AstronomyEngine.getSolarTimes(todayYear, todayMonth, todayDay, _latitude.value, _longitude.value, tzOffsetHours)
+        // Step 1: Get today's sunrise using SunriseSunsetHelper to compare against the current moment
+        val todaySolar = SunriseSunsetHelper.calculateSolarTimes(_latitude.value, _longitude.value, timeZoneId, todayYear, todayMonth, todayDay)
         val todaySunriseSec = todaySolar.sunriseHours * 3600.0
         val currentSecOfDay = now.get(Calendar.HOUR_OF_DAY) * 3600.0 + now.get(Calendar.MINUTE) * 60.0 + now.get(Calendar.SECOND).toDouble()
 
@@ -328,6 +385,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var fetchSolarJob: Job? = null
+
     private fun calculateSuntimesFromCoordinates() {
         val dateParts = _currentDateString.value.split("-")
         if (dateParts.size != 3) return
@@ -336,32 +395,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val day = dateParts[2].toIntOrNull() ?: 1
 
         val timezone = TimeZone.getDefault()
-        val anchorDate = Calendar.getInstance().apply {
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, month - 1)
-            set(Calendar.DAY_OF_MONTH, day)
-            set(Calendar.HOUR_OF_DAY, 12)
-        }
-        val tzOffsetHours = timezone.getOffset(anchorDate.timeInMillis).toDouble() / 1000.0 / 3600.0
+        val timeZoneId = timezone.id
 
-        // Step 1: Sunrise & Sunset for the anchor planetary day
-        val anchorSolar = AstronomyEngine.getSolarTimes(year, month, day, _latitude.value, _longitude.value, tzOffsetHours)
-        
-        // Step 2 & 3: Next sunrise boundary (Sunrise of anchor date + 1 day)
-        val nextDayCal = (anchorDate.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }
-        val nextDayTzOffset = timezone.getOffset(nextDayCal.timeInMillis).toDouble() / 1000.0 / 3600.0
-        val nextDaySolar = AstronomyEngine.getSolarTimes(
-            nextDayCal.get(Calendar.YEAR),
-            nextDayCal.get(Calendar.MONTH) + 1,
-            nextDayCal.get(Calendar.DAY_OF_MONTH),
-            _latitude.value,
-            _longitude.value,
-            nextDayTzOffset
+        // Step 1: Dynamic offline calculation via com.luckycatlabs:SunriseSunsetCalculator
+        val todaySolarTimes = SunriseSunsetHelper.calculateSolarTimes(
+            latitude = _latitude.value,
+            longitude = _longitude.value,
+            timeZoneId = timeZoneId,
+            year = year,
+            month = month,
+            day = day
         )
 
-        _sunriseOverride.value = formatHoursToTimeString(anchorSolar.sunriseHours)
-        _sunsetOverride.value = formatHoursToTimeString(anchorSolar.sunsetHours)
-        _tomorrowSunriseOverride.value = formatHoursToTimeString(nextDaySolar.sunriseHours)
+        _sunriseOverride.value = formatHoursToTimeString(todaySolarTimes.sunriseHours)
+        _sunsetOverride.value = formatHoursToTimeString(todaySolarTimes.sunsetHours)
+        _tomorrowSunriseOverride.value = formatHoursToTimeString(todaySolarTimes.nextSunriseHours)
     }
 
     fun recalculateAndRun() {

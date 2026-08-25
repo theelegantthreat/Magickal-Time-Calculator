@@ -1,6 +1,7 @@
 package com.example
 
 import java.util.Calendar
+import java.util.TimeZone
 import kotlin.math.*
 
 object AstronomyEngine {
@@ -101,39 +102,14 @@ object AstronomyEngine {
     }
 
     fun getSolarTimes(year: Int, month: Int, day: Int, latitude: Double, longitude: Double, timezoneOffsetHours: Double): SolarTimes {
-        val calendar = Calendar.getInstance().apply {
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, month - 1)
-            set(Calendar.DAY_OF_MONTH, day)
-        }
-        val dayOfYear = calendar.get(Calendar.DAY_OF_YEAR)
+        val tzId = TimeZone.getAvailableIDs((timezoneOffsetHours * 3600000).toInt()).firstOrNull() ?: TimeZone.getDefault().id
+        val solarTimes = SunriseSunsetHelper.calculateSolarTimes(latitude, longitude, tzId, year, month, day)
+        return SolarTimes(solarTimes.sunriseHours, solarTimes.sunsetHours)
+    }
 
-        val gamma = 2.0 * Math.PI / 365.0 * (dayOfYear - 1 + (12.0 - longitude / 15.0) / 24.0)
-        val eqTime = 229.18 * (0.000075 + 0.001868 * cos(gamma) - 0.032077 * sin(gamma) - 0.014615 * cos(2.0 * gamma) - 0.040849 * sin(2.0 * gamma))
-        val decl = 0.006918 - 0.399912 * cos(gamma) + 0.070257 * sin(gamma) - 0.006758 * cos(2.0 * gamma) + 0.000907 * sin(2.0 * gamma) - 0.002697 * cos(3.0 * gamma) + 0.00148 * sin(3.0 * gamma)
-
-        val latRad = Math.toRadians(latitude)
-        val cosHA = (cos(Math.toRadians(90.833)) / (cos(latRad) * cos(decl))) - (tan(latRad) * tan(decl))
-
-        if (cosHA > 1.0) {
-            return SolarTimes(6.0, 18.0, isPolarNight = true)
-        } else if (cosHA < -1.0) {
-            return SolarTimes(0.001, 23.999, isPolarDay = true)
-        }
-
-        val haRad = acos(cosHA)
-        val haDegrees = Math.toDegrees(haRad)
-
-        val sunriseUtcMin = 720.0 - 4.0 * (longitude + haDegrees) - eqTime
-        val sunsetUtcMin = 720.0 - 4.0 * (longitude - haDegrees) - eqTime
-
-        var sunriseLocalHours = (sunriseUtcMin / 60.0) + timezoneOffsetHours
-        var sunsetLocalHours = (sunsetUtcMin / 60.0) + timezoneOffsetHours
-
-        sunriseLocalHours = (sunriseLocalHours % 24.0 + 24.0) % 24.0
-        sunsetLocalHours = (sunsetLocalHours % 24.0 + 24.0) % 24.0
-
-        return SolarTimes(sunriseLocalHours, sunsetLocalHours)
+    fun getSolarTimes(year: Int, month: Int, day: Int, latitude: Double, longitude: Double, timeZoneId: String): SolarTimes {
+        val solarTimes = SunriseSunsetHelper.calculateSolarTimes(latitude, longitude, timeZoneId, year, month, day)
+        return SolarTimes(solarTimes.sunriseHours, solarTimes.sunsetHours)
     }
 
     fun getDayOfWeekIndex(year: Int, month: Int, day: Int): Int {

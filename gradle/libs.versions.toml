@@ -1,5 +1,6 @@
 [versions]
 agp = "9.1.1"
+sunriseSunsetCalculator = "1.2"
 coreKtx = "1.18.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
@@ -87,6 +88,7 @@ roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi
 roborazzi-junit-rule = { group = "io.github.takahirom.roborazzi", name = "roborazzi-junit-rule", version.ref = "roborazzi" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
+sunrise-sunset-calculator = { group = "com.luckycatlabs", name = "SunriseSunsetCalculator", version.ref = "sunriseSunsetCalculator" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

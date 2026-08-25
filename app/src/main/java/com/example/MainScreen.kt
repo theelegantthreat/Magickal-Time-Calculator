@@ -77,6 +77,7 @@ fun MainScreen(viewModel: MainViewModel) {
     val tattvaMode by viewModel.tattvaDisplayMode.collectAsStateWithLifecycle()
 
     val logsList by viewModel.allLogs.collectAsStateWithLifecycle()
+    val isLocating by viewModel.isLocating.collectAsStateWithLifecycle()
 
     // Screen Interactive states
     var showSettingsState by remember { mutableStateOf(false) }
@@ -101,30 +102,21 @@ fun MainScreen(viewModel: MainViewModel) {
     }
 
     // Interactive custom location inputs
-    var inputLat by remember(latitude) { mutableStateOf(latitude.toString()) }
-    var inputLon by remember(longitude) { mutableStateOf(longitude.toString()) }
+    var inputLat by remember(latitude) { mutableStateOf(String.format(Locale.US, "%.5f", latitude)) }
+    var inputLon by remember(longitude) { mutableStateOf(String.format(Locale.US, "%.5f", longitude)) }
     var inputLocName by remember(locationName) { mutableStateOf(locationName) }
 
-    // Android Location Permission Launcher
+    // Android Location Permission Launcher using FusedLocationProviderClient
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val fineGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarseGranted = permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (fineGranted || coarseGranted) {
-            Toast.makeText(context, "Location permission granted! Locating...", Toast.LENGTH_SHORT).show()
-            handleLocationDetectionProcess(
-                context = context,
-                onLocationDetected = { lat, lon, name ->
-                    inputLat = String.format(Locale.US, "%.5f", lat)
-                    inputLon = String.format(Locale.US, "%.5f", lon)
-                    inputLocName = name
-                    viewModel.updateLocation(lat, lon, name)
-                },
-                onStatusToast = { msg ->
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                }
-            )
+            Toast.makeText(context, "Acquiring GPS coordinates...", Toast.LENGTH_SHORT).show()
+            viewModel.acquireCurrentLocation { success, message ->
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
         } else {
             Toast.makeText(context, "Location permission was denied.", Toast.LENGTH_SHORT).show()
         }
@@ -137,8 +129,9 @@ fun MainScreen(viewModel: MainViewModel) {
             notificationsEnabled = notificationsEnabled,
             hapticsEnabled = hapticsEnabled,
             inputLocName = locationName,
-            inputLat = latitude.toString(),
-            inputLon = longitude.toString(),
+            inputLat = String.format(Locale.US, "%.5f", latitude),
+            inputLon = String.format(Locale.US, "%.5f", longitude),
+            isLocating = isLocating,
             sunriseOverride = sunriseOverride,
             sunsetOverride = sunsetOverride,
             tomorrowSunriseOverride = tomorrowSunriseOverride,
@@ -153,17 +146,19 @@ fun MainScreen(viewModel: MainViewModel) {
             onUpdateLocation = { lat, lon, name ->
                 viewModel.updateLocation(lat, lon, name)
             },
-            onAutoDetectRequest = { onDone ->
-                handleLocationDetectionProcess(
-                    context = context,
-                    onLocationDetected = { lat, lon, name ->
-                        viewModel.updateLocation(lat, lon, name)
-                        onDone(lat, lon, name)
-                    },
-                    onStatusToast = { msg ->
+            onAutoDetectRequest = {
+                if (viewModel.hasLocationPermission()) {
+                    viewModel.acquireCurrentLocation { _, msg ->
                         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     }
-                )
+                } else {
+                    locationPermissionLauncher.launch(
+                        arrayOf(
+                            android.Manifest.permission.ACCESS_FINE_LOCATION,
+                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }
             },
             onSunriseOverrideChange = { viewModel.manualOverrideSunrise(it, 0) },
             onSunsetOverrideChange = { viewModel.manualOverrideSunrise(it, 1) },
@@ -482,12 +477,52 @@ fun MainScreen(viewModel: MainViewModel) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "📍 $locationName",
-                                color = CelestialGold,
-                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                modifier = Modifier.testTag("location_indicator")
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
+                                Text(
+                                    text = "📍 $locationName",
+                                    color = CelestialGold,
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.testTag("location_indicator")
+                                )
+                                IconButton(
+                                    onClick = {
+                                        if (viewModel.hasLocationPermission()) {
+                                            viewModel.acquireCurrentLocation { _, msg ->
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            }
+                                        } else {
+                                            locationPermissionLauncher.launch(
+                                                arrayOf(
+                                                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                                )
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.size(24.dp).testTag("quick_gps_locate_btn")
+                                ) {
+                                    if (isLocating) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(14.dp),
+                                            color = CelestialGold,
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.LocationOn,
+                                            contentDescription = "Auto-detect location with GPS",
+                                            tint = CelestialGold,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
                             Text(
                                 text = "🕒 ${formatSecToString(currentTimeSec)}",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
@@ -762,30 +797,10 @@ fun MainScreen(viewModel: MainViewModel) {
                             ) {
                                 Button(
                                     onClick = {
-                                        val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
-                                            context,
-                                            android.Manifest.permission.ACCESS_FINE_LOCATION
-                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-                                        val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
-                                            context,
-                                            android.Manifest.permission.ACCESS_COARSE_LOCATION
-                                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-                                        if (hasFine || hasCoarse) {
-                                            Toast.makeText(context, "Acquiring coordinates...", Toast.LENGTH_SHORT).show()
-                                            handleLocationDetectionProcess(
-                                                context = context,
-                                                onLocationDetected = { lat, lon, name ->
-                                                    inputLat = String.format(Locale.US, "%.5f", lat)
-                                                    inputLon = String.format(Locale.US, "%.5f", lon)
-                                                    inputLocName = name
-                                                    viewModel.updateLocation(lat, lon, name)
-                                                },
-                                                onStatusToast = { msg ->
-                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                                }
-                                            )
+                                        if (viewModel.hasLocationPermission()) {
+                                            viewModel.acquireCurrentLocation { _, msg ->
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            }
                                         } else {
                                             locationPermissionLauncher.launch(
                                                 arrayOf(
@@ -795,10 +810,23 @@ fun MainScreen(viewModel: MainViewModel) {
                                             )
                                         }
                                     },
+                                    enabled = !isLocating,
                                     modifier = Modifier.weight(1.3f).testTag("live_autodetect_btn"),
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                                 ) {
-                                    Text("📍 Auto-Detect")
+                                    if (isLocating) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            color = Color.White,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Locating...")
+                                    } else {
+                                        Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Auto-Detect GPS")
+                                    }
                                 }
 
                                 Button(
@@ -1456,33 +1484,6 @@ fun MainScreen(viewModel: MainViewModel) {
 } // closes ModalNavigationDrawer
 } // closes MainScreen
 
-private val MOCK_LOCATIONS = listOf(
-    Triple(51.5074, -0.1278, "London, UK"),
-    Triple(30.0444, 31.2357, "Cairo, Egypt"),
-    Triple(27.1751, 78.0421, "Taj Mahal, India"),
-    Triple(35.6762, 139.6503, "Tokyo, Japan"),
-    Triple(-33.8688, 151.2093, "Sydney, Australia")
-)
-
-private fun handleLocationDetectionProcess(
-    context: android.content.Context,
-    onLocationDetected: (Double, Double, String) -> Unit,
-    onStatusToast: (String) -> Unit
-) {
-    performRealLocationDetection(
-        context = context,
-        onUpdate = { lat, lon, name ->
-            onLocationDetected(lat, lon, name)
-            onStatusToast("Location updated: $name")
-        },
-        onFailure = { error ->
-            onStatusToast("GPS unavailable ($error). Loaded fallback location.")
-            val picked = MOCK_LOCATIONS.random()
-            onLocationDetected(picked.first, picked.second, picked.third)
-        }
-    )
-}
-
 @Composable
 private fun FeaturedCycleCard(
     testTag: String,
@@ -1760,120 +1761,6 @@ private fun formatSecToLocalTime(secValue: Double): String {
     return String.format(Locale.getDefault(), "%02d:%02d", h, m)
 }
 
-private fun performRealLocationDetection(
-    context: android.content.Context,
-    onUpdate: (Double, Double, String) -> Unit,
-    onFailure: (String) -> Unit
-) {
-    val locationManager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? android.location.LocationManager
-    if (locationManager == null) {
-        onFailure("Location service not available on device")
-        return
-    }
-
-    val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
-        context,
-        android.Manifest.permission.ACCESS_FINE_LOCATION
-    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-    val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
-        context,
-        android.Manifest.permission.ACCESS_COARSE_LOCATION
-    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-    if (!hasFine && !hasCoarse) {
-        onFailure("Required location permissions not granted")
-        return
-    }
-
-    var isGpsEnabled = false
-    var isNetworkEnabled = false
-    try {
-        isGpsEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
-        isNetworkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
-    } catch (e: Exception) {
-        onFailure("Could not query providers: ${e.localizedMessage}")
-        return
-    }
-
-    if (!isGpsEnabled && !isNetworkEnabled) {
-        onFailure("GPS and network location providers are both disabled")
-        return
-    }
-
-    var bestLocation: android.location.Location? = null
-    try {
-        if (isGpsEnabled) {
-            val loc = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-            if (loc != null) bestLocation = loc
-        }
-        if (bestLocation == null && isNetworkEnabled) {
-            val loc = locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-            if (loc != null) bestLocation = loc
-        }
-    } catch (_: SecurityException) {
-    } catch (_: Exception) {}
-
-    if (bestLocation != null) {
-        resolveLocationAndGeocode(context, bestLocation, onUpdate)
-        return
-    }
-
-    val provider = if (isNetworkEnabled) android.location.LocationManager.NETWORK_PROVIDER else android.location.LocationManager.GPS_PROVIDER
-    try {
-        val listener = object : android.location.LocationListener {
-            override fun onLocationChanged(location: android.location.Location) {
-                resolveLocationAndGeocode(context, location, onUpdate)
-                try {
-                    locationManager.removeUpdates(this)
-                } catch (_: Exception) {}
-            }
-            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
-            override fun onProviderEnabled(provider: String) {}
-            override fun onProviderDisabled(provider: String) {}
-        }
-        locationManager.requestLocationUpdates(provider, 0L, 0f, listener, android.os.Looper.getMainLooper())
-    } catch (e: SecurityException) {
-        onFailure("Security error: ${e.localizedMessage}")
-    } catch (e: Exception) {
-        onFailure("Network/GPS fault: ${e.localizedMessage}")
-    }
-}
-
-private fun resolveLocationAndGeocode(
-    context: android.content.Context,
-    location: android.location.Location,
-    onUpdate: (Double, Double, String) -> Unit
-) {
-    val lat = location.latitude
-    val lon = location.longitude
-
-    Thread {
-        var solvedName = "Auto-Detected Coordinates"
-        try {
-            val geocoder = android.location.Geocoder(context, java.util.Locale.getDefault())
-            @Suppress("DEPRECATION")
-            val addresses = geocoder.getFromLocation(lat, lon, 1)
-            val address = addresses?.firstOrNull()
-            if (address != null) {
-                val city = address.locality ?: address.subAdminArea ?: address.adminArea
-                val country = address.countryCode ?: address.countryName ?: ""
-                solvedName = if (city != null) "$city, $country" else if (country.isNotEmpty()) country else "Lat: ${String.format(java.util.Locale.US, "%.3f", lat)}"
-            } else {
-                solvedName = "Latitude: ${String.format(java.util.Locale.US, "%.3f", lat)}"
-            }
-        } catch (e: Exception) {
-            solvedName = "Location at ${String.format(java.util.Locale.US, "%.3f", lat)}, ${String.format(java.util.Locale.US, "%.3f", lon)}"
-        }
-
-        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        val nameToUse = solvedName
-        mainHandler.post {
-            onUpdate(lat, lon, nameToUse)
-        }
-    }.start()
-}
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CosmicSettingsBottomSheet(
@@ -1883,6 +1770,7 @@ fun CosmicSettingsBottomSheet(
     inputLocName: String,
     inputLat: String,
     inputLon: String,
+    isLocating: Boolean = false,
     sunriseOverride: String,
     sunsetOverride: String,
     tomorrowSunriseOverride: String,
@@ -1890,7 +1778,7 @@ fun CosmicSettingsBottomSheet(
     onNotificationsChange: (Boolean) -> Unit,
     onHapticsChange: (Boolean) -> Unit,
     onUpdateLocation: (Double, Double, String) -> Unit,
-    onAutoDetectRequest: ((Double, Double, String) -> Unit) -> Unit,
+    onAutoDetectRequest: () -> Unit,
     onSunriseOverrideChange: (String) -> Unit,
     onSunsetOverrideChange: (String) -> Unit,
     onTomorrowSunriseOverrideChange: (String) -> Unit,
@@ -2032,19 +1920,24 @@ fun CosmicSettingsBottomSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
-                    onClick = {
-                        onAutoDetectRequest { lat, lon, name ->
-                            latState = String.format(Locale.US, "%.5f", lat)
-                            lonState = String.format(Locale.US, "%.5f", lon)
-                            locNameState = name
-                        }
-                    },
+                    onClick = onAutoDetectRequest,
+                    enabled = !isLocating,
                     modifier = Modifier.weight(1.3f).testTag("live_autodetect_btn"),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                 ) {
-                    Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Auto-Detect")
+                    if (isLocating) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Locating...")
+                    } else {
+                        Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Auto-Detect GPS")
+                    }
                 }
 
                 Button(
