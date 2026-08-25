@@ -527,7 +527,7 @@ fun MainScreen(viewModel: MainViewModel) {
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = "Day-Today: $currentDateStr",
+                                    text = if (calcResults != null) "${calcResults!!.dayName} (${calcResults!!.date})" else currentDateStr,
                                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                                     color = CelestialGold
                                 )
@@ -543,6 +543,48 @@ fun MainScreen(viewModel: MainViewModel) {
                             }
                         }
 
+                        if (calcResults != null) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (darkTheme) SpaceBackground else Color(0xFFEFEBE1),
+                                border = BorderStroke(1.dp, if (darkTheme) StarrySlateBorders else Color(0xFFD4CBBB)),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "👑 Day Ruler:",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (darkTheme) Color.LightGray else Color.DarkGray
+                                        )
+                                        Text(
+                                            text = "${calcResults!!.dayRulerSymbol} ${calcResults!!.dayRulerName}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = CelestialGold
+                                        )
+                                    }
+                                    Text(
+                                        text = "Sunrise → Next Sunrise",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (darkTheme) Color.Gray else Color.DarkGray,
+                                        fontStyle = FontStyle.Italic
+                                    )
+                                }
+                            }
+                        }
+
                         if (isManualDateSelected) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
@@ -552,15 +594,15 @@ fun MainScreen(viewModel: MainViewModel) {
                                 FilterChip(
                                     selected = true,
                                     onClick = { viewModel.goToToday() },
-                                    label = { Text("↺ Reset to Live Astrological Day", fontSize = 11.sp) },
+                                    label = { Text("↺ Reset to Live Planetary Day", fontSize = 11.sp) },
                                     modifier = Modifier.testTag("reset_today_chip")
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                        // Solar bounds summary spanning Day-Today to Day-NextDay
+                        // Solar bounds summary spanning Sunrise to Next Sunrise
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -571,7 +613,7 @@ fun MainScreen(viewModel: MainViewModel) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "🌅 Sunrise Today: $sunriseOverride",
+                                    text = "🌅 Sunrise (Hour 1 / Tattwa 1): $sunriseOverride",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontSize = 12.sp,
                                     color = if (darkTheme) Color.LightGray else Color.DarkGray
@@ -583,7 +625,7 @@ fun MainScreen(viewModel: MainViewModel) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "🌇 Sunset: $sunsetOverride",
+                                    text = "🌇 Sunset (Night Hour 13): $sunsetOverride",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontSize = 12.sp,
                                     color = if (darkTheme) Color.LightGray else Color.DarkGray
@@ -595,7 +637,7 @@ fun MainScreen(viewModel: MainViewModel) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "🌅 Sunrise Next Day: $tomorrowSunriseOverride",
+                                    text = "🌅 Next Sunrise (Cycle End / Tattwa 60): $tomorrowSunriseOverride",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,

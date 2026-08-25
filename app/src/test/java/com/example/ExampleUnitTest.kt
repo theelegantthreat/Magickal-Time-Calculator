@@ -72,9 +72,12 @@ class ExampleUnitTest {
     val calc = MainViewModel.CalculationResults(
       date = "2026-08-14",
       dayOfWeekIndex = 5,
+      dayName = "Friday",
+      dayRulerName = "Venus",
+      dayRulerSymbol = "♀",
       sunriseSeconds = 21600.0,
       sunsetSeconds = 64800.0,
-      tomorrowSunriseSeconds = 21600.0,
+      tomorrowSunriseSeconds = 108000.0,
       planetaryHours = ph,
       tattvas = tv,
       combined = cb,
@@ -87,6 +90,41 @@ class ExampleUnitTest {
     assertTrue(csv.contains("TATTWIC TIDES"))
     assertTrue(csv.contains("COMBINED PLANETARY & TATTWIC ALIGNMENTS"))
     assertTrue(csv.contains("06:00:00"))
+  }
+
+  @Test
+  fun testPlanetaryHoursAndTattwaCalculations() {
+    // Continuous timeline from Sunrise (06:00 = 21600s) to Sunset (18:00 = 64800s) to Next Sunrise (06:00 + 24h = 108000s)
+    val sunriseSec = 21600.0
+    val sunsetSec = 64800.0
+    val nextSunriseSec = 108000.0
+    val dowIndex = 2 // Tuesday -> Mars (♂)
+
+    val hours = AstronomyEngine.calculatePlanetaryHours(sunriseSec, sunsetSec, nextSunriseSec, dowIndex)
+    assertEquals(24, hours.size)
+    assertEquals(1, hours.first().number)
+    assertEquals("Mars", hours.first().planetName)
+    assertFalse(hours.first().isNight)
+    assertEquals(21600.0, hours.first().startSecondOfDay, 0.01)
+
+    // Hour 12 is Day, Hour 13 is Night starting at Sunset
+    assertFalse(hours[11].isNight)
+    assertTrue(hours[12].isNight)
+    assertEquals(64800.0, hours[12].startSecondOfDay, 0.01)
+    assertEquals(24, hours.last().number)
+    assertEquals(108000.0, hours.last().endSecondOfDay, 0.01)
+
+    // Tattwas: 60 cycles across the full sunrise-to-next-sunrise span
+    val tattvas = AstronomyEngine.calculateTattvas(sunriseSec, nextSunriseSec)
+    assertEquals(60, tattvas.size)
+    assertEquals("Akasha", tattvas[0].name)
+    assertEquals("Vayu", tattvas[1].name)
+    assertEquals("Tejas", tattvas[2].name)
+    assertEquals("Apas", tattvas[3].name)
+    assertEquals("Prithivi", tattvas[4].name)
+    assertEquals("Akasha", tattvas[5].name)
+    assertEquals(21600.0, tattvas.first().startSecondOfDay, 0.01)
+    assertEquals(108000.0, tattvas.last().endSecondOfDay, 0.01)
   }
 
   @Test

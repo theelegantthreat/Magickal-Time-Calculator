@@ -86,6 +86,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     data class CalculationResults(
         val date: String,
         val dayOfWeekIndex: Int,
+        val dayName: String,
+        val dayRulerName: String,
+        val dayRulerSymbol: String,
         val sunriseSeconds: Double,
         val sunsetSeconds: Double,
         val tomorrowSunriseSeconds: Double,
@@ -94,7 +97,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val combined: List<AstronomyEngine.CombinedShift>,
         val dayHourLengthSeconds: Double,
         val nightHourLengthSeconds: Double,
-        val tattvaLengthSeconds: Double
+        val tattvaLengthSeconds: Double,
+        val isBeforeSunrise: Boolean = false
     )
 
     private val _calculationResults = MutableStateFlow<CalculationResults?>(null)
@@ -295,29 +299,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun syncToActiveAstrologicalDay() {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val now = Calendar.getInstance()
-        val todayStr = sdf.format(now.time)
-
-        val dateParts = todayStr.split("-")
-        val year = dateParts.getOrNull(0)?.toIntOrNull() ?: 2026
-        val month = dateParts.getOrNull(1)?.toIntOrNull() ?: 6
-        val day = dateParts.getOrNull(2)?.toIntOrNull() ?: 1
+        val todayYear = now.get(Calendar.YEAR)
+        val todayMonth = now.get(Calendar.MONTH) + 1
+        val todayDay = now.get(Calendar.DAY_OF_MONTH)
 
         val timezone = TimeZone.getDefault()
-        val curDate = Calendar.getInstance().apply {
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, month - 1)
-            set(Calendar.DAY_OF_MONTH, day)
-            set(Calendar.HOUR_OF_DAY, 12)
-        }
-        val tzOffsetHours = timezone.getOffset(curDate.timeInMillis).toDouble() / 1000.0 / 3600.0
+        val tzOffsetHours = timezone.getOffset(now.timeInMillis).toDouble() / 1000.0 / 3600.0
 
-        val todaySolar = AstronomyEngine.getSolarTimes(year, month, day, _latitude.value, _longitude.value, tzOffsetHours)
-        val sunriseSec = todaySolar.sunriseHours * 3600.0
+        // Step 1: Get today's sunrise to compare against the current moment
+        val todaySolar = AstronomyEngine.getSolarTimes(todayYear, todayMonth, todayDay, _latitude.value, _longitude.value, tzOffsetHours)
+        val todaySunriseSec = todaySolar.sunriseHours * 3600.0
         val currentSecOfDay = now.get(Calendar.HOUR_OF_DAY) * 3600.0 + now.get(Calendar.MINUTE) * 60.0 + now.get(Calendar.SECOND).toDouble()
 
+        // Step 2: Determine which planetary day is currently active
+        // If current time is before today's sunrise -> active planetary day is yesterday's.
+        // If current time is at or after today's sunrise -> active planetary day is today's.
         val activeCal = (now.clone() as Calendar)
-        if (currentSecOfDay < sunriseSec) {
-            // Before sunrise today => Active astrological day is Yesterday
+        val isBeforeSunrise = currentSecOfDay < todaySunriseSec
+        if (isBeforeSunrise) {
             activeCal.add(Calendar.DAY_OF_MONTH, -1)
         }
         val activeDateStr = sdf.format(activeCal.time)
@@ -337,31 +336,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val day = dateParts[2].toIntOrNull() ?: 1
 
         val timezone = TimeZone.getDefault()
-        val curDate = Calendar.getInstance().apply {
+        val anchorDate = Calendar.getInstance().apply {
             set(Calendar.YEAR, year)
             set(Calendar.MONTH, month - 1)
             set(Calendar.DAY_OF_MONTH, day)
             set(Calendar.HOUR_OF_DAY, 12)
         }
-        val tzOffsetHours = timezone.getOffset(curDate.timeInMillis).toDouble() / 1000.0 / 3600.0
+        val tzOffsetHours = timezone.getOffset(anchorDate.timeInMillis).toDouble() / 1000.0 / 3600.0
 
-        // Calculate for today
-        val todaySolar = AstronomyEngine.getSolarTimes(year, month, day, _latitude.value, _longitude.value, tzOffsetHours)
+        // Step 1: Sunrise & Sunset for the anchor planetary day
+        val anchorSolar = AstronomyEngine.getSolarTimes(year, month, day, _latitude.value, _longitude.value, tzOffsetHours)
         
-        // Calculate for tomorrow
-        val tomorrowCal = (curDate.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }
-        val tomorrowSolar = AstronomyEngine.getSolarTimes(
-            tomorrowCal.get(Calendar.YEAR),
-            tomorrowCal.get(Calendar.MONTH) + 1,
-            tomorrowCal.get(Calendar.DAY_OF_MONTH),
+        // Step 2 & 3: Next sunrise boundary (Sunrise of anchor date + 1 day)
+        val nextDayCal = (anchorDate.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }
+        val nextDayTzOffset = timezone.getOffset(nextDayCal.timeInMillis).toDouble() / 1000.0 / 3600.0
+        val nextDaySolar = AstronomyEngine.getSolarTimes(
+            nextDayCal.get(Calendar.YEAR),
+            nextDayCal.get(Calendar.MONTH) + 1,
+            nextDayCal.get(Calendar.DAY_OF_MONTH),
             _latitude.value,
             _longitude.value,
-            tzOffsetHours
+            nextDayTzOffset
         )
 
-        _sunriseOverride.value = formatHoursToTimeString(todaySolar.sunriseHours)
-        _sunsetOverride.value = formatHoursToTimeString(todaySolar.sunsetHours)
-        _tomorrowSunriseOverride.value = formatHoursToTimeString(tomorrowSolar.sunriseHours)
+        _sunriseOverride.value = formatHoursToTimeString(anchorSolar.sunriseHours)
+        _sunsetOverride.value = formatHoursToTimeString(anchorSolar.sunsetHours)
+        _tomorrowSunriseOverride.value = formatHoursToTimeString(nextDaySolar.sunriseHours)
     }
 
     fun recalculateAndRun() {
@@ -375,8 +375,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val month = dateParts.getOrNull(1)?.toIntOrNull() ?: 6
         val day = dateParts.getOrNull(2)?.toIntOrNull() ?: 1
 
+        // Step 2 & 4: Day ruler is the weekday of the anchor date
         val dowIndex = AstronomyEngine.getDayOfWeekIndex(year, month, day)
+        val dayRulerName = AstronomyEngine.DAY_RULERS[dowIndex]
+        val dayRulerSymbol = AstronomyEngine.PLANET_SYMBOLS[dayRulerName] ?: ""
+        val dayName = AstronomyEngine.DAY_NAMES[dowIndex]
 
+        // Step 3: Convert to continuous timeline (seconds since local midnight of anchor date)
         var sunriseSec = parseTimeToSeconds(_sunriseOverride.value)
         var sunsetSec = parseTimeToSeconds(_sunsetOverride.value)
         var tomorrowSunriseSec = parseTimeToSeconds(_tomorrowSunriseOverride.value) + 86400.0
@@ -385,7 +390,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (sunsetSec <= sunriseSec) sunsetSec += 86400.0
         if (tomorrowSunriseSec <= sunsetSec) tomorrowSunriseSec += 86400.0
 
+        // Step 4: Calculate 24 Planetary Hours (12 day + 12 night) in Chaldean order starting with day ruler
         val planetaryHours = AstronomyEngine.calculatePlanetaryHours(sunriseSec, sunsetSec, tomorrowSunriseSec, dowIndex)
+
+        // Step 5: Calculate 60 Tattwa cycles dividing total span (sunrise to next sunrise)
         val tattvas = AstronomyEngine.calculateTattvas(sunriseSec, tomorrowSunriseSec)
         val combined = AstronomyEngine.calculateCombinedView(planetaryHours, tattvas)
 
@@ -393,9 +401,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val nightLen = tomorrowSunriseSec - sunsetSec
         val tattvaLen = (tomorrowSunriseSec - sunriseSec) / 60.0
 
+        // Check if currently before today's sunrise in real time
+        val now = Calendar.getInstance()
+        val curSecOfDay = now.get(Calendar.HOUR_OF_DAY) * 3600.0 + now.get(Calendar.MINUTE) * 60.0 + now.get(Calendar.SECOND).toDouble()
+        val isBeforeSunrise = !_isManualDateSelected.value && curSecOfDay < sunriseSec
+
         _calculationResults.value = CalculationResults(
             date = dateStr,
             dayOfWeekIndex = dowIndex,
+            dayName = dayName,
+            dayRulerName = dayRulerName,
+            dayRulerSymbol = dayRulerSymbol,
             sunriseSeconds = sunriseSec,
             sunsetSeconds = sunsetSec,
             tomorrowSunriseSeconds = tomorrowSunriseSec,
@@ -404,7 +420,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             combined = combined,
             dayHourLengthSeconds = dayLen / 12.0,
             nightHourLengthSeconds = nightLen / 12.0,
-            tattvaLengthSeconds = tattvaLen
+            tattvaLengthSeconds = tattvaLen,
+            isBeforeSunrise = isBeforeSunrise
         )
 
         // Force a clock tick evaluate
@@ -424,14 +441,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun tickClockState() {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
-        // Auto sync to active astrological day if not manually selected
+        // Step 6: Live-accurate check: If not manual, auto sync to active planetary day
         if (!_isManualDateSelected.value) {
             syncToActiveAstrologicalDay()
         }
 
         val calc = _calculationResults.value ?: return
 
-        // Calculate elapsed seconds since midnight of calc.date
+        // Calculate elapsed seconds since midnight of anchor date (calc.date)
         val selCal = Calendar.getInstance().apply {
             try {
                 val parsed = sdf.parse(calc.date)
@@ -446,6 +463,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val selMidnightMillis = selCal.timeInMillis
         val nowMillis = System.currentTimeMillis()
         val curSec = (nowMillis - selMidnightMillis) / 1000.0
+
+        // Step 6: If app stays open across sunrise, detect when real time passes next sunrise boundary
+        if (!_isManualDateSelected.value && (curSec >= calc.tomorrowSunriseSeconds || curSec < calc.sunriseSeconds)) {
+            syncToActiveAstrologicalDay()
+            return
+        }
 
         _currentTimeSeconds.value = curSec
 

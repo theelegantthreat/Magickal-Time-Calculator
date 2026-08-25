@@ -7,6 +7,7 @@ object AstronomyEngine {
 
     val PLANET_ORDER = listOf("Saturn", "Jupiter", "Mars", "Sun", "Venus", "Mercury", "Moon")
     val DAY_RULERS = listOf("Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn")
+    val DAY_NAMES = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
     val PLANET_SYMBOLS = mapOf(
         "Sun" to "☉",
