@@ -241,5 +241,53 @@ class ExampleUnitTest {
     assertTrue("Night hours are numbered 13 to 24", result.currentHourNumber in 13..24)
     assertEquals(24, result.allHoursOfDay.size)
   }
+
+  @Test
+  fun testDetailedOfflineSolarCalculations() {
+    val tz = TimeZone.getTimeZone("America/Los_Angeles")
+    val cal = Calendar.getInstance(tz).apply {
+      set(2026, Calendar.AUGUST, 25, 12, 0, 0)
+    }
+
+    // Los Angeles Coordinates: 34.0522, -118.2437
+    val result = SunriseSunsetHelper.calculateDetailedOfflineSolarTimes(
+      latitude = 34.0522,
+      longitude = -118.2437,
+      timeZoneId = tz.id,
+      targetDate = cal
+    )
+
+    assertNotNull(result)
+    assertTrue(result.sunriseMillis < result.sunsetMillis)
+    assertTrue(result.sunsetMillis < result.nextSunriseMillis)
+    assertTrue(result.dayLengthMillis > 0)
+    assertTrue(result.nightLengthMillis > 0)
+    assertTrue("Sunrise in LA in August is ~06:15 - 06:35", result.sunriseHours in 6.0..6.7)
+    assertTrue("Sunset in LA in August is ~19:20 - 19:45", result.sunsetHours in 19.2..19.8)
+    assertEquals("NOAA Offline Equations & SunriseSunsetCalculator", result.calculationSource)
+  }
+
+  @Test
+  fun testNOAASolarTimesAlgorithmOffline() {
+    val tz = TimeZone.getTimeZone("America/New_York")
+    val cal = Calendar.getInstance(tz).apply {
+      set(2026, Calendar.JUNE, 21, 12, 0, 0) // Summer Solstice
+    }
+
+    val noaa = SunriseSunsetHelper.calculateNOAASolarTimes(
+      latitude = 40.7128,
+      longitude = -74.0060,
+      timeZone = tz,
+      calendar = cal
+    )
+
+    assertNotNull(noaa)
+    assertTrue(noaa.sunriseMillis < noaa.solarNoonMillis)
+    assertTrue(noaa.solarNoonMillis < noaa.sunsetMillis)
+    assertTrue(noaa.civilDawnMillis < noaa.sunriseMillis)
+    assertTrue(noaa.sunsetMillis < noaa.civilDuskMillis)
+    assertTrue("Summer Solstice Declination is ~23.4°", noaa.solarDeclination in 23.0..23.6)
+  }
 }
+
 

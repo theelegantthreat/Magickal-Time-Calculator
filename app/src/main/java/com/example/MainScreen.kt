@@ -78,6 +78,7 @@ fun MainScreen(viewModel: MainViewModel) {
 
     val logsList by viewModel.allLogs.collectAsStateWithLifecycle()
     val isLocating by viewModel.isLocating.collectAsStateWithLifecycle()
+    val detailedSolarTimes by viewModel.detailedSolarTimes.collectAsStateWithLifecycle()
 
     // Screen Interactive states
     var showSettingsState by remember { mutableStateOf(false) }
@@ -678,6 +679,32 @@ fun MainScreen(viewModel: MainViewModel) {
                                     fontWeight = FontWeight.Medium,
                                     color = CelestialGold
                                 )
+                            }
+
+                            if (detailedSolarTimes != null) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "☀️ Day: ${detailedSolarTimes!!.dayLengthFormatted}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (darkTheme) Color.LightGray else Color.DarkGray
+                                    )
+                                    Text(
+                                        text = "🌙 Night: ${detailedSolarTimes!!.nightLengthFormatted}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (darkTheme) Color.LightGray else Color.DarkGray
+                                    )
+                                    Text(
+                                        text = "⚡ Offline Calculated",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF81C784)
+                                    )
+                                }
                             }
                         }
                     }

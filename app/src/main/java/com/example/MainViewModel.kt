@@ -77,6 +77,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isManualDateSelected = MutableStateFlow(false)
     val isManualDateSelected: StateFlow<Boolean> = _isManualDateSelected.asStateFlow()
 
+    private val _detailedSolarTimes = MutableStateFlow<DetailedSolarTimes?>(null)
+    val detailedSolarTimes: StateFlow<DetailedSolarTimes?> = _detailedSolarTimes.asStateFlow()
+
     // Dynamic sunrise/sunset states computed offline using SunriseSunsetHelper
     private val _sunriseOverride = MutableStateFlow(
         formatHoursToTimeString(
@@ -388,6 +391,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var fetchSolarJob: Job? = null
 
+    fun calculateOfflineSunriseSunsetForCurrentLocation(onComplete: ((DetailedSolarTimes?) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val times = SunriseSunsetHelper.calculateOfflineSolarTimesForCurrentLocation(
+                    locationProvider = locationProvider,
+                    targetDate = Calendar.getInstance(),
+                    timeZoneId = TimeZone.getDefault().id
+                )
+                if (times != null) {
+                    _detailedSolarTimes.value = times
+                    _latitude.value = times.latitude
+                    _longitude.value = times.longitude
+                    _sunriseOverride.value = formatHoursToTimeString(times.sunriseHours)
+                    _sunsetOverride.value = formatHoursToTimeString(times.sunsetHours)
+                    _tomorrowSunriseOverride.value = formatHoursToTimeString(times.nextSunriseHours)
+                    recalculateAndRun()
+                    onComplete?.invoke(times)
+                } else {
+                    onComplete?.invoke(null)
+                }
+            } catch (_: Exception) {
+                onComplete?.invoke(null)
+            }
+        }
+    }
+
     private fun calculateSuntimesFromCoordinates() {
         val dateParts = _currentDateString.value.split("-")
         if (dateParts.size != 3) return
@@ -398,19 +427,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val timezone = TimeZone.getDefault()
         val timeZoneId = timezone.id
 
-        // Step 1: Dynamic offline calculation via com.luckycatlabs:SunriseSunsetCalculator
-        val todaySolarTimes = SunriseSunsetHelper.calculateSolarTimes(
+        val targetCal = Calendar.getInstance(timezone).apply {
+            set(Calendar.YEAR, year)
+            set(Calendar.MONTH, month - 1)
+            set(Calendar.DAY_OF_MONTH, day)
+            set(Calendar.HOUR_OF_DAY, 12)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        // Step 1: Dynamic offline calculation via NOAA algorithm and SunriseSunsetCalculator
+        val detailedTimes = SunriseSunsetHelper.calculateDetailedOfflineSolarTimes(
             latitude = _latitude.value,
             longitude = _longitude.value,
             timeZoneId = timeZoneId,
-            year = year,
-            month = month,
-            day = day
+            targetDate = targetCal
         )
 
-        _sunriseOverride.value = formatHoursToTimeString(todaySolarTimes.sunriseHours)
-        _sunsetOverride.value = formatHoursToTimeString(todaySolarTimes.sunsetHours)
-        _tomorrowSunriseOverride.value = formatHoursToTimeString(todaySolarTimes.nextSunriseHours)
+        _detailedSolarTimes.value = detailedTimes
+        _sunriseOverride.value = formatHoursToTimeString(detailedTimes.sunriseHours)
+        _sunsetOverride.value = formatHoursToTimeString(detailedTimes.sunsetHours)
+        _tomorrowSunriseOverride.value = formatHoursToTimeString(detailedTimes.nextSunriseHours)
     }
 
     fun recalculateAndRun() {
