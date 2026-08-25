@@ -2,6 +2,8 @@ package com.example
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.util.Calendar
+import java.util.TimeZone
 
 class ExampleUnitTest {
   @Test
@@ -152,11 +154,11 @@ class ExampleUnitTest {
     val cal = Calendar.getInstance(tz).apply {
       set(2026, Calendar.AUGUST, 25, 12, 0, 0)
     }
-    val solar = SunriseSunsetHelper.calculateSunriseSunset(40.7128, -74.0060, tz, cal)
+    val solar = SunriseSunsetHelper.calculateSolarTimes(40.7128, -74.0060, tz.id, cal)
     assertNotNull(solar.sunriseCalendar)
     assertNotNull(solar.sunsetCalendar)
-    assertTrue(solar.sunriseSecondsOfDay in 21600.0..24000.0) // ~06:00 to ~06:40
-    assertTrue(solar.sunsetSecondsOfDay in 70000.0..73000.0)  // ~19:25 to ~20:15
+    assertTrue(solar.sunriseHours in 6.0..6.7)
+    assertTrue(solar.sunsetHours in 19.4..20.2)
   }
 
   @Test
@@ -185,6 +187,59 @@ class ExampleUnitTest {
     assertEquals("COMBINED_VIEW", prefs.activeViewMode)
     assertTrue(prefs.darkTheme)
     assertFalse(prefs.hapticsEnabled)
+  }
+
+  @Test
+  fun testPlanetaryHourCalculationServiceMidday() {
+    val service = PlanetaryHourCalculationService()
+    val tz = TimeZone.getTimeZone("America/New_York")
+    
+    // Tuesday, Aug 25, 2026 at 12:00 PM (Noon)
+    val cal = Calendar.getInstance(tz).apply {
+      set(2026, Calendar.AUGUST, 25, 12, 0, 0)
+    }
+
+    val result = service.calculateCurrentPlanetaryHour(
+      latitude = 40.7128,
+      longitude = -74.0060,
+      targetTime = cal,
+      timeZone = tz
+    )
+
+    assertEquals("Tuesday", result.astrologicalDayName)
+    assertEquals("Mars", result.astrologicalDayRuler)
+    assertFalse("Midday should be a daytime hour", result.isNight)
+    assertTrue("Hour number should be within 1..12 during day", result.currentHourNumber in 1..12)
+    assertEquals(24, result.allHoursOfDay.size)
+    assertNotNull(result.planetName)
+    assertTrue(result.progress in 0.0f..1.0f)
+    assertTrue("Sunrise should be before target time", result.sunriseMillis <= cal.timeInMillis)
+    assertTrue("Sunset should be after target time", result.sunsetMillis >= cal.timeInMillis)
+  }
+
+  @Test
+  fun testPlanetaryHourCalculationServiceBeforeSunriseBelongsToPreviousAstroDay() {
+    val service = PlanetaryHourCalculationService()
+    val tz = TimeZone.getTimeZone("America/New_York")
+    
+    // Wednesday, Aug 26, 2026 at 03:00 AM (Before Sunrise)
+    // Astrological day should still be Tuesday (Mars)
+    val cal = Calendar.getInstance(tz).apply {
+      set(2026, Calendar.AUGUST, 26, 3, 0, 0)
+    }
+
+    val result = service.calculateCurrentPlanetaryHour(
+      latitude = 40.7128,
+      longitude = -74.0060,
+      targetTime = cal,
+      timeZone = tz
+    )
+
+    assertEquals("Tuesday", result.astrologicalDayName)
+    assertEquals("Mars", result.astrologicalDayRuler)
+    assertTrue("3 AM is a night hour", result.isNight)
+    assertTrue("Night hours are numbered 13 to 24", result.currentHourNumber in 13..24)
+    assertEquals(24, result.allHoursOfDay.size)
   }
 }
 

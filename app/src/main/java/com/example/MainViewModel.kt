@@ -34,6 +34,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ShiftLogRepository(database.shiftLogDao())
     private val preferencesRepository = CalculationPreferencesRepository(database.calculationPreferencesDao())
     private val locationProvider = LocationProvider(application)
+    val planetaryHourService = PlanetaryHourCalculationService(application, locationProvider)
 
     // UI state flows
     val allLogs: StateFlow<List<LoggedShift>> = repository.allItemsStateFlow(viewModelScope)
