@@ -422,32 +422,12 @@ object SunriseSunsetHelper {
         )
     }
 
-    fun getHoursFromMillis(timeMillis: Long, timeZone: TimeZone): Double {
+    private fun getHoursFromMillis(timeMillis: Long, timeZone: TimeZone): Double {
         val cal = Calendar.getInstance(timeZone).apply { timeInMillis = timeMillis }
         return cal.get(Calendar.HOUR_OF_DAY) +
                 cal.get(Calendar.MINUTE) / 60.0 +
                 cal.get(Calendar.SECOND) / 3600.0 +
                 cal.get(Calendar.MILLISECOND) / 3600000.0
-    }
-
-    fun fallbackSunriseMillis(cal: Calendar): Long {
-        val fallback = (cal.clone() as Calendar).apply {
-            set(Calendar.HOUR_OF_DAY, 6)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        return fallback.timeInMillis
-    }
-
-    fun fallbackSunsetMillis(cal: Calendar): Long {
-        val fallback = (cal.clone() as Calendar).apply {
-            set(Calendar.HOUR_OF_DAY, 18)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        return fallback.timeInMillis
     }
 }
 

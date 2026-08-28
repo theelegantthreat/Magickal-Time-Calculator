@@ -83,7 +83,7 @@ class PlanetaryHourCalculationService(
         }
 
         val todaySunriseCal = calculator.getOfficialSunriseCalendarForDate(todayCal)
-        val todaySunriseMillis = todaySunriseCal?.timeInMillis ?: SunriseSunsetHelper.fallbackSunriseMillis(todayCal)
+        val todaySunriseMillis = todaySunriseCal?.timeInMillis ?: fallbackSunriseMillis(todayCal)
 
         val isBeforeTodaySunrise = targetMillis < todaySunriseMillis
 
@@ -97,15 +97,15 @@ class PlanetaryHourCalculationService(
         val astroSunriseCal = calculator.getOfficialSunriseCalendarForDate(astroDateCal)
         val astroSunsetCal = calculator.getOfficialSunsetCalendarForDate(astroDateCal)
 
-        val sunriseMillis = astroSunriseCal?.timeInMillis ?: SunriseSunsetHelper.fallbackSunriseMillis(astroDateCal)
-        var sunsetMillis = astroSunsetCal?.timeInMillis ?: SunriseSunsetHelper.fallbackSunsetMillis(astroDateCal)
+        val sunriseMillis = astroSunriseCal?.timeInMillis ?: fallbackSunriseMillis(astroDateCal)
+        var sunsetMillis = astroSunsetCal?.timeInMillis ?: fallbackSunsetMillis(astroDateCal)
 
         // Step 3: Compute next day's sunrise (completing the 24 planetary hour cycle)
         val nextDayCal = (astroDateCal.clone() as Calendar).apply {
             add(Calendar.DAY_OF_YEAR, 1)
         }
         val nextSunriseCal = calculator.getOfficialSunriseCalendarForDate(nextDayCal)
-        var nextSunriseMillis = nextSunriseCal?.timeInMillis ?: SunriseSunsetHelper.fallbackSunriseMillis(nextDayCal)
+        var nextSunriseMillis = nextSunriseCal?.timeInMillis ?: fallbackSunriseMillis(nextDayCal)
 
         // Sanity adjustments for polar edge cases or inverted order
         if (sunsetMillis <= sunriseMillis) {
@@ -120,10 +120,20 @@ class PlanetaryHourCalculationService(
         val dayRulerPlanet = AstronomyEngine.DAY_RULERS[dowIndex]
         val dayName = AstronomyEngine.DAY_NAMES[dowIndex]
 
-        // Step 5: Delegate 24 planetary hours calculation to AstronomyEngine
-        val sunriseHourLocal = SunriseSunsetHelper.getHoursFromMillis(sunriseMillis, timeZone)
-        val sunsetHourLocal = SunriseSunsetHelper.getHoursFromMillis(sunsetMillis, timeZone)
-        val nextSunriseHourLocal = SunriseSunsetHelper.getHoursFromMillis(nextSunriseMillis, timeZone)
+        // Step 5: Calculate daytime hour duration (12 equal parts) and nighttime hour duration (12 equal parts)
+        val dayTotalDurationMillis = sunsetMillis - sunriseMillis
+        val nightTotalDurationMillis = nextSunriseMillis - sunsetMillis
+
+        val dayHourDurationMillis = dayTotalDurationMillis / 12.0
+        val nightHourDurationMillis = nightTotalDurationMillis / 12.0
+
+        val all24Hours = mutableListOf<AstronomyEngine.PlanetaryHour>()
+
+        // Build 12 Daytime Hours
+        val baseSunriseSec = (astroDateCal.get(Calendar.HOUR_OF_DAY) * 3600.0) // reference basis
+        val sunriseHourLocal = getLocalHourFraction(sunriseMillis, timeZone)
+        val sunsetHourLocal = getLocalHourFraction(sunsetMillis, timeZone)
+        val nextSunriseHourLocal = getLocalHourFraction(nextSunriseMillis, timeZone)
 
         var sunriseSec = sunriseHourLocal * 3600.0
         var sunsetSec = sunsetHourLocal * 3600.0
@@ -131,17 +141,46 @@ class PlanetaryHourCalculationService(
         if (sunsetSec <= sunriseSec) sunsetSec += 86400.0
         if (nextSunriseSec <= sunsetSec) nextSunriseSec += 86400.0
 
-        val all24Hours = AstronomyEngine.calculatePlanetaryHours(
-            sunriseSec = sunriseSec,
-            sunsetSec = sunsetSec,
-            tomorrowSunriseSec = nextSunriseSec,
-            dayOfWeekIndex = dowIndex
-        )
+        val startPlanetIndex = AstronomyEngine.PLANET_ORDER.indexOf(dayRulerPlanet).let { if (it >= 0) it else 0 }
+        val dayHourSec = (sunsetSec - sunriseSec) / 12.0
+        val nightHourSec = (nextSunriseSec - sunsetSec) / 12.0
+
+        for (i in 0 until 12) {
+            val planetIdx = (startPlanetIndex + i) % 7
+            val pName = AstronomyEngine.PLANET_ORDER[planetIdx]
+            all24Hours.add(
+                AstronomyEngine.PlanetaryHour(
+                    number = i + 1,
+                    planetName = pName,
+                    planetSymbol = AstronomyEngine.PLANET_SYMBOLS[pName] ?: "",
+                    startSecondOfDay = sunriseSec + i * dayHourSec,
+                    endSecondOfDay = sunriseSec + (i + 1) * dayHourSec,
+                    isNight = false,
+                    colorHex = AstronomyEngine.PLANET_COLORS[pName] ?: "#FFFFFF"
+                )
+            )
+        }
+
+        // Build 12 Nighttime Hours
+        val nightStartPlanetIdx = (startPlanetIndex + 12) % 7
+        for (i in 0 until 12) {
+            val planetIdx = (nightStartPlanetIdx + i) % 7
+            val pName = AstronomyEngine.PLANET_ORDER[planetIdx]
+            all24Hours.add(
+                AstronomyEngine.PlanetaryHour(
+                    number = i + 13,
+                    planetName = pName,
+                    planetSymbol = AstronomyEngine.PLANET_SYMBOLS[pName] ?: "",
+                    startSecondOfDay = sunsetSec + i * nightHourSec,
+                    endSecondOfDay = sunsetSec + (i + 1) * nightHourSec,
+                    isNight = true,
+                    colorHex = AstronomyEngine.PLANET_COLORS[pName] ?: "#FFFFFF"
+                )
+            )
+        }
 
         // Step 6: Identify which of the 24 hours matches targetMillis
         val isNightPeriod = targetMillis >= sunsetMillis
-        val dayHourDurationMillis = (sunsetMillis - sunriseMillis) / 12.0
-        val nightHourDurationMillis = (nextSunriseMillis - sunsetMillis) / 12.0
 
         val hourNumber: Int
         val activePlanetName: String
@@ -330,4 +369,32 @@ class PlanetaryHourCalculationService(
             delay(intervalMillis)
         }
     }.flowOn(Dispatchers.Default)
+
+    private fun getLocalHourFraction(timeMillis: Long, timeZone: TimeZone): Double {
+        val cal = Calendar.getInstance(timeZone).apply { timeInMillis = timeMillis }
+        return cal.get(Calendar.HOUR_OF_DAY) +
+                cal.get(Calendar.MINUTE) / 60.0 +
+                cal.get(Calendar.SECOND) / 3600.0 +
+                cal.get(Calendar.MILLISECOND) / 3600000.0
+    }
+
+    private fun fallbackSunriseMillis(cal: Calendar): Long {
+        val fallback = (cal.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 6)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return fallback.timeInMillis
+    }
+
+    private fun fallbackSunsetMillis(cal: Calendar): Long {
+        val fallback = (cal.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 18)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return fallback.timeInMillis
+    }
 }
