@@ -1878,7 +1878,11 @@ fun CosmicSettingsBottomSheet(
                         onCheckedChange = onDarkThemeChange,
                         modifier = Modifier.minimumInteractiveComponentSize().testTag("theme_checkbox")
                     )
-                    Text("Dark Universe Mode", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "Dark Universe Mode",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1887,7 +1891,11 @@ fun CosmicSettingsBottomSheet(
                         onCheckedChange = onNotificationsChange,
                         modifier = Modifier.minimumInteractiveComponentSize().testTag("notifications_checkbox")
                     )
-                    Text("Shift Reminders", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "Shift Reminders",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1896,7 +1904,11 @@ fun CosmicSettingsBottomSheet(
                         onCheckedChange = onHapticsChange,
                         modifier = Modifier.minimumInteractiveComponentSize().testTag("haptics_checkbox")
                     )
-                    Text("Haptic Feedback Trigger", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "Haptic Feedback Trigger",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
                 }
             }
 
