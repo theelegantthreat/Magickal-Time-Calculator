@@ -5,10 +5,11 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [LoggedShift::class, CalculationPreferences::class], version = 2, exportSchema = false)
+@Database(entities = [LoggedShift::class, CalculationPreferences::class, PlanetaryObservation::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun shiftLogDao(): ShiftLogDao
     abstract fun calculationPreferencesDao(): CalculationPreferencesDao
+    abstract fun planetaryObservationDao(): PlanetaryObservationDao
 
     companion object {
         @Volatile

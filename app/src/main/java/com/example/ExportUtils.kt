@@ -19,8 +19,53 @@ object ExportUtils {
 
     enum class ExportType {
         SHIFT_LOGS_ONLY,
+        PLANETARY_OBSERVATIONS_ONLY,
         TRACKED_CYCLES_ONLY,
         COMPLETE_ALL
+    }
+
+    /**
+     * Generates a well-formatted CSV string of user-recorded planetary observations and journal entries.
+     */
+    fun generateObservationsCsv(observations: List<PlanetaryObservation>): String {
+        val sb = StringBuilder()
+        sb.append("# Magickal Time - Planetary Observations & Journal Export\n")
+        sb.append("# Generated: ${formatCurrentDateTime()}\n")
+        sb.append("# Total Observations: ${observations.size}\n\n")
+        sb.append("Observation_ID,Timestamp_Epoch_Ms,Local_DateTime,Date_String,Location_Name,Latitude,Longitude,Hour_Number,Phase,Planet_Name,Planet_Symbol,Tattwa_Name,Tattwa_Symbol,Mood_Energy,Tags,Title,Content_Journal\n")
+
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
+        for (obs in observations) {
+            val formattedTime = sdf.format(Date(obs.timestamp))
+            val phase = if (obs.isNight) "Night" else "Day"
+            val escapedLocationName = escapeCsvField(obs.locationName)
+            val escapedPlanet = escapeCsvField(obs.planetName)
+            val escapedTattva = escapeCsvField(obs.tattwaName)
+            val escapedMood = escapeCsvField(obs.moodOrEnergy)
+            val escapedTags = escapeCsvField(obs.tags)
+            val escapedTitle = escapeCsvField(obs.title)
+            val escapedContent = escapeCsvField(obs.content)
+
+            sb.append("${obs.id},")
+                .append("${obs.timestamp},")
+                .append("\"$formattedTime\",")
+                .append("\"${obs.dateString}\",")
+                .append("\"$escapedLocationName\",")
+                .append("${obs.latitude},")
+                .append("${obs.longitude},")
+                .append("${obs.hourNumber},")
+                .append("\"$phase\",")
+                .append("\"$escapedPlanet\",")
+                .append("\"${obs.planetSymbol}\",")
+                .append("\"$escapedTattva\",")
+                .append("\"${obs.tattwaSymbol}\",")
+                .append("\"$escapedMood\",")
+                .append("\"$escapedTags\",")
+                .append("\"$escapedTitle\",")
+                .append("\"$escapedContent\"\n")
+        }
+        return sb.toString()
     }
 
     /**
@@ -130,10 +175,11 @@ object ExportUtils {
     }
 
     /**
-     * Generates a comprehensive single CSV report containing both tracked cycle definitions and user shift logs.
+     * Generates a comprehensive single CSV report containing tracked cycle definitions, user shift logs, and planetary observations.
      */
     fun generateCompleteExportCsv(
         logs: List<LoggedShift>,
+        observations: List<PlanetaryObservation> = emptyList(),
         calc: MainViewModel.CalculationResults?,
         locationName: String,
         latitude: Double,
@@ -141,14 +187,23 @@ object ExportUtils {
     ): String {
         val sb = StringBuilder()
         sb.append("# ========================================================\n")
-        sb.append("# MAGICKAL TIME - COMPLETE CYCLES & SHIFT LOGS ARCHIVE\n")
+        sb.append("# MAGICKAL TIME - COMPLETE CYCLES, SHIFT LOGS & OBSERVATIONS ARCHIVE\n")
         sb.append("# Generated: ${formatCurrentDateTime()}\n")
         sb.append("# Location: ${escapeCsvField(locationName)} (Lat: $latitude, Lon: $longitude)\n")
         sb.append("# Total Logged Shifts in Database: ${logs.size}\n")
+        sb.append("# Total Planetary Observations in Database: ${observations.size}\n")
         sb.append("# ========================================================\n\n")
 
         if (calc != null) {
             sb.append(generateCyclesCsv(calc, locationName, latitude, longitude))
+            sb.append("\n\n")
+        }
+
+        sb.append("=== SECTION: PLANETARY OBSERVATIONS & JOURNAL ENTRIES ===\n")
+        if (observations.isEmpty()) {
+            sb.append("# No recorded planetary observations found in database.\n\n")
+        } else {
+            sb.append(generateObservationsCsv(observations))
             sb.append("\n\n")
         }
 

@@ -32,12 +32,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val sharedPrefs = application.getSharedPreferences("magick_time_prefs", Context.MODE_PRIVATE)
     private val database = AppDatabase.getDatabase(application)
     private val repository = ShiftLogRepository(database.shiftLogDao())
+    private val observationRepository = PlanetaryObservationRepository(database.planetaryObservationDao())
     private val preferencesRepository = CalculationPreferencesRepository(database.calculationPreferencesDao())
     private val locationProvider = LocationProvider(application)
     val planetaryHourService = PlanetaryHourCalculationService(application, locationProvider)
 
     // UI state flows
     val allLogs: StateFlow<List<LoggedShift>> = repository.allItemsStateFlow(viewModelScope)
+    val allObservations: StateFlow<List<PlanetaryObservation>> = observationRepository.allItemsStateFlow(viewModelScope)
     val preferencesFlow: StateFlow<CalculationPreferences?> = preferencesRepository.preferencesFlow
         .stateIn(
             scope = viewModelScope,
@@ -705,7 +707,91 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Planetary Observations Management
+    fun addObservation(
+        planetName: String,
+        hourNumber: Int,
+        isNight: Boolean,
+        tattwaName: String,
+        title: String,
+        content: String,
+        moodOrEnergy: String = "Balanced",
+        tags: String = "",
+        dateStringOverride: String? = null
+    ) {
+        val calc = _calculationResults.value ?: return
+        val dateToUse = dateStringOverride ?: calc.date
+        val planetSymbol = AstronomyEngine.PLANET_SYMBOLS[planetName] ?: ""
+        val tattwaSymbol = AstronomyEngine.TATTVA_ORDER.find { it.name.equals(tattwaName, ignoreCase = true) }?.symbol ?: ""
+
+        val newObs = PlanetaryObservation(
+            dateString = dateToUse,
+            planetName = planetName,
+            planetSymbol = planetSymbol,
+            hourNumber = hourNumber,
+            isNight = isNight,
+            tattwaName = tattwaName,
+            tattwaSymbol = tattwaSymbol,
+            title = title.trim(),
+            content = content.trim(),
+            moodOrEnergy = moodOrEnergy,
+            tags = tags.trim(),
+            locationName = _locationName.value,
+            latitude = _latitude.value,
+            longitude = _longitude.value
+        )
+        viewModelScope.launch {
+            observationRepository.insert(newObs)
+            if (_hapticsEnabled.value) {
+                triggerVibration()
+            }
+        }
+    }
+
+    fun updateObservation(observation: PlanetaryObservation) {
+        viewModelScope.launch {
+            observationRepository.update(observation)
+            if (_hapticsEnabled.value) {
+                triggerVibration()
+            }
+        }
+    }
+
+    fun deleteObservation(id: Long) {
+        viewModelScope.launch {
+            observationRepository.deleteById(id)
+        }
+    }
+
+    fun clearObservations() {
+        viewModelScope.launch {
+            observationRepository.clearAll()
+        }
+    }
+
     // Export Actions
+    fun exportObservationsCsv(context: Context, saveLocally: Boolean = true, onResult: ((String) -> Unit)? = null) {
+        viewModelScope.launch {
+            val obsList = observationRepository.allObservations.stateIn(this).value
+            if (obsList.isEmpty()) {
+                onResult?.invoke("No planetary observations to export.")
+                return@launch
+            }
+            val csvText = ExportUtils.generateObservationsCsv(obsList)
+            if (saveLocally) {
+                val pathInfo = ExportUtils.saveCsvToDownloads(context, "planetary_observations", csvText)
+                if (pathInfo != null) {
+                    onResult?.invoke("Exported planetary observations: $pathInfo")
+                } else {
+                    onResult?.invoke("Failed to write CSV file locally.")
+                }
+            } else {
+                ExportUtils.shareCsvData(context, "Magickal Time - Planetary Observations CSV", csvText)
+                onResult?.invoke("Opened share sheet for Observations CSV.")
+            }
+        }
+    }
+
     fun exportShiftLogsCsv(context: Context, saveLocally: Boolean = true, onResult: ((String) -> Unit)? = null) {
         viewModelScope.launch {
             val logs = repository.allLogs.stateIn(this).value
@@ -759,9 +845,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun exportCompleteHistoryAndCyclesCsv(context: Context, saveLocally: Boolean = true, onResult: ((String) -> Unit)? = null) {
         viewModelScope.launch {
             val logs = repository.allLogs.stateIn(this).value
+            val observations = observationRepository.allObservations.stateIn(this).value
             val calc = _calculationResults.value
             val csvText = ExportUtils.generateCompleteExportCsv(
                 logs = logs,
+                observations = observations,
                 calc = calc,
                 locationName = _locationName.value,
                 latitude = _latitude.value,
@@ -775,7 +863,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     onResult?.invoke("Failed to write CSV file locally.")
                 }
             } else {
-                ExportUtils.shareCsvData(context, "Magickal Time - Complete Cycles & Shift History CSV", csvText)
+                ExportUtils.shareCsvData(context, "Magickal Time - Complete Archive CSV", csvText)
                 onResult?.invoke("Opened share sheet for Complete Archive CSV.")
             }
         }

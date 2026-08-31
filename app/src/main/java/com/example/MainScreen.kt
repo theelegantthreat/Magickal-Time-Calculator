@@ -77,6 +77,7 @@ fun MainScreen(viewModel: MainViewModel) {
     val tattvaMode by viewModel.tattvaDisplayMode.collectAsStateWithLifecycle()
 
     val logsList by viewModel.allLogs.collectAsStateWithLifecycle()
+    val observationsList by viewModel.allObservations.collectAsStateWithLifecycle()
     val isLocating by viewModel.isLocating.collectAsStateWithLifecycle()
     val detailedSolarTimes by viewModel.detailedSolarTimes.collectAsStateWithLifecycle()
 
@@ -84,6 +85,9 @@ fun MainScreen(viewModel: MainViewModel) {
     var showSettingsState by remember { mutableStateOf(false) }
     var noteInputText by remember { mutableStateOf("") }
     var showLogLevelsState by remember { mutableStateOf(false) }
+    var showObservationsState by remember { mutableStateOf(false) }
+    var showAddEditObservationDialog by remember { mutableStateOf(false) }
+    var observationToEdit by remember { mutableStateOf<PlanetaryObservation?>(null) }
     var showDatePickerDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
 
@@ -173,10 +177,17 @@ fun MainScreen(viewModel: MainViewModel) {
         ExportCsvBottomSheet(
             darkTheme = darkTheme,
             logsCount = logsList.size,
+            observationsCount = observationsList.size,
             currentDateStr = currentDateStr,
             onDismiss = { showExportDialog = false },
             onExportLogs = { saveLocally ->
                 viewModel.exportShiftLogsCsv(context, saveLocally) { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                showExportDialog = false
+            },
+            onExportObservations = { saveLocally ->
+                viewModel.exportObservationsCsv(context, saveLocally) { message ->
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 }
                 showExportDialog = false
@@ -208,6 +219,77 @@ fun MainScreen(viewModel: MainViewModel) {
                 showExportDialog = true
             },
             onDismiss = { showLogLevelsState = false }
+        )
+    }
+
+    // Dedicated Panel 4: Planetary Observations
+    if (showObservationsState) {
+        PlanetaryObservationsBottomSheet(
+            darkTheme = darkTheme,
+            observationsList = observationsList,
+            currentPlanetaryHour = curPlanetaryHour,
+            currentTattva = curTattva,
+            onOpenAddDialog = {
+                observationToEdit = null
+                showAddEditObservationDialog = true
+            },
+            onOpenEditDialog = { obs ->
+                observationToEdit = obs
+                showAddEditObservationDialog = true
+            },
+            onDeleteObservation = { viewModel.deleteObservation(it) },
+            onClearObservations = { viewModel.clearObservations() },
+            onOpenExport = {
+                showObservationsState = false
+                showExportDialog = true
+            },
+            onDismiss = { showObservationsState = false }
+        )
+    }
+
+    if (showAddEditObservationDialog) {
+        AddEditObservationDialog(
+            darkTheme = darkTheme,
+            existingObservation = observationToEdit,
+            currentPlanetaryHour = curPlanetaryHour,
+            currentTattva = curTattva,
+            currentDateStr = currentDateStr,
+            onDismiss = {
+                showAddEditObservationDialog = false
+                observationToEdit = null
+            },
+            onSave = { planet, hourNum, isNight, tattwa, title, content, mood, tags ->
+                if (observationToEdit != null) {
+                    val updated = observationToEdit!!.copy(
+                        planetName = planet,
+                        planetSymbol = AstronomyEngine.PLANET_SYMBOLS[planet] ?: "",
+                        hourNumber = hourNum,
+                        isNight = isNight,
+                        tattwaName = tattwa,
+                        tattwaSymbol = AstronomyEngine.TATTVA_ORDER.find { it.name.equals(tattwa, ignoreCase = true) }?.symbol ?: "",
+                        title = title,
+                        content = content,
+                        moodOrEnergy = mood,
+                        tags = tags
+                    )
+                    viewModel.updateObservation(updated)
+                    Toast.makeText(context, "Observation updated!", Toast.LENGTH_SHORT).show()
+                } else {
+                    viewModel.addObservation(
+                        planetName = planet,
+                        hourNumber = hourNum,
+                        isNight = isNight,
+                        tattwaName = tattwa,
+                        title = title,
+                        content = content,
+                        moodOrEnergy = mood,
+                        tags = tags
+                    )
+                    Toast.makeText(context, "Planetary observation saved!", Toast.LENGTH_SHORT).show()
+                }
+                showAddEditObservationDialog = false
+                observationToEdit = null
+            }
         )
     }
 
@@ -374,6 +456,39 @@ fun MainScreen(viewModel: MainViewModel) {
                     modifier = Modifier
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                         .testTag("nav_drawer_logs")
+                )
+
+                // 4. Planetary Observations
+                NavigationDrawerItem(
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Planetary Observations",
+                            tint = CelestialGold
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "Planetary Observations",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
+                    badge = {
+                        Badge(
+                            containerColor = CelestialGold,
+                            contentColor = Color.Black
+                        ) {
+                            Text("${observationsList.size}")
+                        }
+                    },
+                    selected = showObservationsState,
+                    onClick = {
+                        coroutineScope.launch { drawerState.close() }
+                        showObservationsState = true
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .testTag("nav_drawer_observations")
                 )
             }
         }
@@ -2043,13 +2158,15 @@ fun CosmicSettingsBottomSheet(
 fun ExportCsvBottomSheet(
     darkTheme: Boolean,
     logsCount: Int,
+    observationsCount: Int,
     currentDateStr: String,
     onDismiss: () -> Unit,
     onExportLogs: (saveLocally: Boolean) -> Unit,
+    onExportObservations: (saveLocally: Boolean) -> Unit,
     onExportCycles: (saveLocally: Boolean) -> Unit,
     onExportComplete: (saveLocally: Boolean) -> Unit
 ) {
-    var selectedOption by remember { mutableStateOf(ExportOption.SHIFT_LOGS) }
+    var selectedOption by remember { mutableStateOf(ExportOption.PLANETARY_OBSERVATIONS) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -2099,7 +2216,18 @@ fun ExportCsvBottomSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Option 1: Shift Logs History
+            // Option 1: Planetary Observations
+            ExportOptionCard(
+                title = "Planetary Observations & Journal",
+                subtitle = "$observationsCount reflections & journal entries linked to planetary hours",
+                isSelected = selectedOption == ExportOption.PLANETARY_OBSERVATIONS,
+                darkTheme = darkTheme,
+                onClick = { selectedOption = ExportOption.PLANETARY_OBSERVATIONS }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Option 2: Shift Logs History
             ExportOptionCard(
                 title = "Shift Logs & Ritual Notes",
                 subtitle = "$logsCount recorded transitions with planet, tattva & location",
@@ -2110,7 +2238,7 @@ fun ExportCsvBottomSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Option 2: Tracked Daily Cycles Schedule
+            // Option 3: Tracked Daily Cycles Schedule
             ExportOptionCard(
                 title = "Tracked Daily Cycles Schedule",
                 subtitle = "All 24h planetary hours, tattwic tides & alignments for $currentDateStr",
@@ -2121,10 +2249,10 @@ fun ExportCsvBottomSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Option 3: Complete Archive (Cycles + Logs)
+            // Option 4: Complete Archive (Cycles + Logs + Observations)
             ExportOptionCard(
-                title = "Complete Archive (All Cycles & Logs)",
-                subtitle = "Comprehensive full dataset with header metadata and user logs",
+                title = "Complete Archive (All Cycles, Logs & Observations)",
+                subtitle = "Comprehensive full dataset with header metadata, observations, and user logs",
                 isSelected = selectedOption == ExportOption.COMPLETE_ARCHIVE,
                 darkTheme = darkTheme,
                 onClick = { selectedOption = ExportOption.COMPLETE_ARCHIVE }
@@ -2147,6 +2275,7 @@ fun ExportCsvBottomSheet(
                 OutlinedButton(
                     onClick = {
                         when (selectedOption) {
+                            ExportOption.PLANETARY_OBSERVATIONS -> onExportObservations(false)
                             ExportOption.SHIFT_LOGS -> onExportLogs(false)
                             ExportOption.DAILY_CYCLES -> onExportCycles(false)
                             ExportOption.COMPLETE_ARCHIVE -> onExportComplete(false)
@@ -2162,6 +2291,7 @@ fun ExportCsvBottomSheet(
                 Button(
                     onClick = {
                         when (selectedOption) {
+                            ExportOption.PLANETARY_OBSERVATIONS -> onExportObservations(true)
                             ExportOption.SHIFT_LOGS -> onExportLogs(true)
                             ExportOption.DAILY_CYCLES -> onExportCycles(true)
                             ExportOption.COMPLETE_ARCHIVE -> onExportComplete(true)
@@ -2345,6 +2475,7 @@ fun RecordedShiftLogsBottomSheet(
 }
 
 private enum class ExportOption {
+    PLANETARY_OBSERVATIONS,
     SHIFT_LOGS,
     DAILY_CYCLES,
     COMPLETE_ARCHIVE
